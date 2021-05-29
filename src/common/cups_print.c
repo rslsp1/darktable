@@ -450,7 +450,7 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
   // for turboprint drived printer, use the turboprint dialog
   if (pinfo->printer.is_turboprint)
   {
-    const char *tp_intent_name[] = { "perception_0", "colorimetric-relative_1", "saturation_1", "colorimetric-absolute_1" };
+    //const char *tp_intent_name[] = { "perception_0", "colorimetric-relative_1", "saturation_1", "colorimetric-absolute_1" };
     char tmpfile[PATH_MAX] = { 0 };
 
     dt_loc_get_tmp_dir(tmpfile, sizeof(tmpfile));
@@ -466,7 +466,7 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
     close(fd);
 
     // ensure that intent is in the range, may happen if at some point we add new intent in the list
-    const int intent = (pinfo->printer.intent < 4) ? pinfo->printer.intent : 0;
+    // const int intent = (pinfo->printer.intent < 4) ? pinfo->printer.intent : 0;
 
     // spawn turboprint command
     gchar * argv[15] = { 0 };
@@ -481,11 +481,12 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
     argv[7] = g_strdup_printf("PageSize=%s", pinfo->paper.common_name);
     argv[8] = "-o";
     argv[9] = "InputSlot=AutoSelect";
-    argv[10] = "-o";
-    argv[11] = g_strdup_printf("zedoIntent=%s", tp_intent_name[intent]);
-    argv[12] = "-o";
-    argv[13] = g_strdup_printf("MediaType=%s", pinfo->medium.name);
-    argv[14] = NULL;
+    argv[10] = NULL;
+    /* argv[10] = "-o"; */
+    /* argv[11] = g_strdup_printf("zedoIntent=%s", tp_intent_name[intent]); */
+    /* argv[12] = "-o"; */
+    /* argv[13] = g_strdup_printf("MediaType=%s", pinfo->medium.name); */
+    /* argv[14] = NULL; */
 
     gint exit_status = 0;
 
