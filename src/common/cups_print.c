@@ -473,8 +473,8 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
     g_free(argv[1]);
     g_free(argv[3]);
     g_free(argv[7]);
-    g_free(argv[11]);
-    g_free(argv[13]);
+    /* g_free(argv[11]); */
+    /* g_free(argv[13]); */
 
     if(exit_status==0)
     {
