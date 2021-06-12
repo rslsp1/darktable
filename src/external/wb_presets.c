@@ -2330,7 +2330,7 @@ const wb_data wb_preset[] =
   { "Canon", "EOS M6", Flash               , 7, { 2.4189453125, 1, 0.92578125, 0 } },
   { "Canon", "EOS M6", Flash               , 8, { 2.552734375, 1, 0.90625, 0 } },
   { "Canon", "EOS M6", Flash               , 9, { 2.7265625, 1, 0.8828125, 0 } },
-  
+
   { "Canon", "EOS M10", Cloudy          , 0, { 2.171053, 1, 1.438596, 0 } },
   { "Canon", "EOS M10", Daylight        , 0, { 1.992408, 1, 1.556399, 0 } },
   { "Canon", "EOS M10", Flash           , 0, { 2.557562, 1, 1.220090, 0 } },
@@ -2947,6 +2947,15 @@ const wb_data wb_preset[] =
   { "Fujifilm", "FinePix X100", "3300K", 0,		{ 1.0066, 1, 2.1060, 0 } },
   { "Fujifilm", "FinePix X100", "5000K", 0,		{ 1.4536, 1, 1.3742, 0 } },
 
+  /* Fujifilm GFX100S firmware 1.00 */
+  { "Fujifilm", "GFX100S", Daylight           , 0, { 1.6920529801324504, 1, 1.8708609271523178, 0 } },
+  { "Fujifilm", "GFX100S", Cloudy             , 0, { 1.8509933774834437, 1, 1.5927152317880795, 0 } },
+  { "Fujifilm", "GFX100S", Incandescent       , 0, { 1.1258278145695364, 1, 2.9304635761589406, 0 } },
+  { "Fujifilm", "GFX100S", DayWhiteFluorescent, 0, { 1.8576158940397351, 1, 1.9205298013245033, 0 } },
+  { "Fujifilm", "GFX100S", DaylightFluorescent, 0, { 2.19205298013245, 1, 1.5827814569536425, 0 } },
+  { "Fujifilm", "GFX100S", WhiteFluorescent   , 0, { 1.7748344370860927, 1, 2.4966887417218544, 0 } },
+  { "Fujifilm", "GFX100S", Underwater         , 0, { 1.6887417218543046, 1, 1.880794701986755, 0 } },
+
   /* Fujifilm X100S firmware 1.20 */
   { "Fujifilm", "X100S", Daylight, 0,		{ 1.874172, 1, 1.490066, 0 } },
   { "Fujifilm", "X100S", Shade, 0,		{ 2.049669, 1, 1.271523, 0 } },
@@ -2980,8 +2989,8 @@ const wb_data wb_preset[] =
   { "Fujifilm", "X100F", WhiteFluorescent, 0,    { 1.9569536423841059, 1, 2.5596026490066226, 0 } },
   { "Fujifilm", "X100F", Incandescent, 0,        { 1.271523178807947, 1, 2.8311258278145695, 0 } },
   { "Fujifilm", "X100F", Underwater, 0,          { 1.9503311258278146, 1, 1.8543046357615893, 0 } },
-  
-  
+
+
   /* Fujifilm X100V firmware 1.10 */
   { "Fujifilm", "X100V", Daylight, 0,                 { 1.784768, 1, 1.768212, 0 } },
   { "Fujifilm", "X100V", Cloudy, 0,                   { 1.94702, 1, 1.516556, 0 } },
@@ -3144,7 +3153,7 @@ const wb_data wb_preset[] =
   { "Fujifilm", "X-Pro2", DaylightFluorescent, 0, { 2.463576, 1, 1.602649, 0 } },
   { "Fujifilm", "X-Pro2", WhiteFluorescent   , 0, { 1.973510, 1, 2.513245, 0 } },
   { "Fujifilm", "X-Pro2", Underwater         , 0, { 1.943709, 1, 1.827815, 0 } },
-  
+
   { "Fujifilm", "X-Pro3", Daylight           , 0, { 1.8675496688741722, 1, 1.8079470198675496, 0 } },
   { "Fujifilm", "X-Pro3", Cloudy             , 0, { 2.013245033112583, 1, 1.5463576158940397, 0 } },
   { "Fujifilm", "X-Pro3", Incandescent       , 0, { 1.2516556291390728, 1, 2.771523178807947, 0 } },
@@ -11176,6 +11185,31 @@ const wb_data wb_preset[] =
   { "RICOH IMAGING COMPANY, LTD.", "GR II", CoolWhiteFluorescent, 0,	{ 2.642000, 1, 2.125000, 0 } },
   { "RICOH IMAGING COMPANY, LTD.", "GR II", WarmWhiteFluorescent, 0,	{ 2.354000, 1, 2.027000, 0 } },
   { "RICOH IMAGING COMPANY, LTD.", "GR II", "5000K", 0,			{ 2.867000, 1, 1.662000, 0 } },
+
+  { "Ricoh", "GR III", Daylight            , -14, { 2.9315068493150687, 1, 1.5420743639921721, 0 } },
+  { "Ricoh", "GR III", Daylight            , 0, { 2.6418786692759295, 1, 1.7377690802348336, 0 } },
+  { "Ricoh", "GR III", Daylight            , 14, { 2.3835616438356166, 1, 1.9530332681017613, 0 } },
+  { "Ricoh", "GR III", Shade               , -14, { 3.5185909980430528, 1, 1.1585127201565557, 0 } },
+  { "Ricoh", "GR III", Shade               , 0, { 3.1702544031311155, 1, 1.3033268101761253, 0 } },
+  { "Ricoh", "GR III", Shade               , 14, { 2.8610567514677103, 1, 1.4637964774951076, 0 } },
+  { "Ricoh", "GR III", Cloudy              , -14, { 3.2054794520547945, 1, 1.3385518590998042, 0 } },
+  { "Ricoh", "GR III", Cloudy              , 0, { 2.888454011741683, 1, 1.5068493150684932, 0 } },
+  { "Ricoh", "GR III", Cloudy              , 14, { 2.6066536203522506, 1, 1.6947162426614482, 0 } },
+  { "Ricoh", "GR III", Tungsten            , -14, { 1.8395303326810175, 1, 2.684931506849315, 0 } },
+  { "Ricoh", "GR III", Tungsten            , 0, { 1.659491193737769, 1, 3.0215264187866926, 0 } },
+  { "Ricoh", "GR III", Tungsten            , 14, { 1.4951076320939334, 1, 3.401174168297456, 0 } },
+  { "Ricoh", "GR III", WarmWhiteFluorescent, -14, { 2.148727984344423, 1, 2.6418786692759295, 0 } },
+  { "Ricoh", "GR III", WarmWhiteFluorescent, 0, { 1.9373776908023483, 1, 2.974559686888454, 0 } },
+  { "Ricoh", "GR III", WarmWhiteFluorescent, 14, { 1.74559686888454, 1, 3.3463796477495107, 0 } },
+  { "Ricoh", "GR III", DayWhiteFluorescent , -14, { 2.8258317025440314, 1, 1.741682974559687, 0 } },
+  { "Ricoh", "GR III", DayWhiteFluorescent , 0, { 2.547945205479452, 1, 1.9608610567514677, 0 } },
+  { "Ricoh", "GR III", DayWhiteFluorescent , 14, { 2.2974559686888454, 1, 2.207436399217221, 0 } },
+  { "Ricoh", "GR III", DaylightFluorescent , -14, { 3.3228962818003915, 1, 1.538160469667319, 0 } },
+  { "Ricoh", "GR III", DaylightFluorescent , 0, { 2.9941291585127203, 1, 1.729941291585127, 0 } },
+  { "Ricoh", "GR III", DaylightFluorescent , 14, { 2.700587084148728, 1, 1.9452054794520548, 0 } },
+  { "Ricoh", "GR III", WhiteFluorescent    , -14, { 2.540117416829746, 1, 2.1291585127201564, 0 } },
+  { "Ricoh", "GR III", WhiteFluorescent    , 0, { 2.289628180039139, 1, 2.395303326810176, 0 } },
+  { "Ricoh", "GR III", WhiteFluorescent    , 14, { 2.0665362035225048, 1, 2.696673189823875, 0 } },
 
   { "Samsung", "EX1", Daylight, 0,		{ 1.8711, 1, 2.0039, 0 } },
   { "Samsung", "EX1", Cloudy, 0,		{ 2.3672, 1, 1.6797, 0 } },

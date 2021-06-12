@@ -484,8 +484,10 @@ void expose(
       load_txt = dt_util_dstrcat(
           NULL,
           _("darktable could not load `%s', switching to lighttable now.\n\n"
-            "please check the image (use exiv2 or exiftool) for corrupted data. if the image seems to\n"
-            "be intact, please consider opening an issue at https://github.com/darktable-org/darktable."),
+            "please check that the camera model that produced the image is supported in darktable\n"
+            "(list of supported cameras is at https://www.darktable.org/resources/camera-support/).\n"
+            "if you are sure that the camera model is supported, please consider opening an issue\n"
+            "at https://github.com/darktable-org/darktable"),
           dev->image_storage.filename);
       if(dev->image_invalid_cnt > 400)
       {
@@ -1266,7 +1268,7 @@ static void _darkroom_ui_apply_style_activate_callback(gchar *name)
   dt_dev_undo_start_record(darktable.develop);
 
   /* apply style on image and reload*/
-  dt_styles_apply_to_image(name, FALSE, darktable.develop->image_storage.id);
+  dt_styles_apply_to_image(name, FALSE, FALSE, darktable.develop->image_storage.id);
   dt_dev_reload_image(darktable.develop, darktable.develop->image_storage.id);
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_TAG_CHANGED);

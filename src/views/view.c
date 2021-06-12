@@ -380,8 +380,8 @@ int dt_view_manager_switch_by_view(dt_view_manager_t *vm, const dt_view_t *nv)
       {
         snprintf(var, sizeof(var), "plugins/%s/%s/expanded", new_view->module_name, plugin->plugin_name);
         expanded = dt_conf_get_bool(var);
-
         dt_lib_gui_set_expanded(plugin, expanded);
+        dt_lib_set_visible(plugin, visible);
       }
       else
       {
