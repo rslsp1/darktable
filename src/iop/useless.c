@@ -125,7 +125,7 @@ int default_group()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return iop_cs_rgb;
 }
 
 // Whenever new fields are added to (or removed from) dt_iop_..._params_t or when their meaning
@@ -290,7 +290,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   // and the scale of the roi.
   const float scale = piece->iscale / roi_in->scale;
   // how many colors in our buffer?
-  const int ch = piece->colors;
+  const size_t ch = piece->colors;
 
   // most modules only support a single type of input data, so we can check whether that format has been supplied
   // and simply pass along the data if not (setting a trouble flag to inform the user)
@@ -628,10 +628,10 @@ GSList *mouse_actions(dt_iop_module_t *self)
 {
   GSList *lm = NULL;
   // add the first action
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_SCROLL, GDK_SHIFT_MASK, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_SCROLL, GDK_SHIFT_MASK,
                                      _("[%s] some action"), self->name());
   // append a second action to the list we will return
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK | GDK_SHIFT_MASK, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK | GDK_SHIFT_MASK,
                                      _("[%s] other action"), self->name());
   return lm;
 }

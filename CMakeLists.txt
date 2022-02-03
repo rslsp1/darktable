@@ -308,7 +308,7 @@ if(TESTBUILD_OPENCL_PROGRAMS)
   endmacro()
 
   # 3.9 is the first version with which this works.
-  find_llvm("12;11;10;9;8;7;6.0;5.0;4.0;3.9")
+  find_llvm("13;12;11;10;9;8;7;6.0;5.0;4.0;3.9")
 
   if (LLVM_FOUND)
     message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
@@ -466,38 +466,6 @@ if(BUILD_TESTING)
   include_directories(${CMOCKA_INCLUDE_DIR} include)
 endif(BUILD_TESTING)
 
-#
-# Test SSE level
-#
-# if(NOT USE_SSE_FLAG)
-# 	set(SSE_C_TESTS "sse4" "sse3" "sse2" "sse")
-# 	message("-- Checking SSE instructions support by current CPU")
-# 	foreach(sse_test ${SSE_C_TESTS})
-# 		if(NOT SSE_FOUND)
-# 			if(WIN32)
-# 				set(SSE_CHECK_COMMAND "FAILURE")
-# 			elseif(APPLE)
-# 				set(SSE_CHECK_COMMAND sysctl -a | grep ${sse_test})
-# 			else()#other os
-# 				set(SSE_CHECK_COMMAND grep ${sse_test} /proc/cpuinfo)
-# 			endif(WIN32)
-# 			execute_process(COMMAND ${SSE_CHECK_COMMAND} RESULT_VARIABLE ret_var OUTPUT_VARIABLE out_var)
-#
-# 			if(ret_var EQUAL 0) # grep returns 0 on success
-# 				set(SSE_FOUND TRUE)
-# 				message("--  ${sse_test} detected and working.")
-# 				set(USE_SSE_SET ${sse_test})
-# 			endif(ret_var EQUAL 0)
-#
-# 		endif(NOT SSE_FOUND)
-# 	endforeach(sse_test)
-# endif(NOT USE_SSE_FLAG)
-#
-# # set the SSE
-# if(USE_SSE_SET)
-# 	set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} "-m${USE_SSE_SET}")
-# endif(USE_SSE_SET)
-
 # we need some specific functions:
 if(NOT WIN32)
     if(CMAKE_SYSTEM MATCHES "SunOS.*")
@@ -505,7 +473,9 @@ if(NOT WIN32)
     else()
         add_definitions("-D_XOPEN_SOURCE=700")
     endif(CMAKE_SYSTEM MATCHES "SunOS.*")
-endif(NOT WIN32)
+else()
+    add_definitions("-D_USE_MATH_DEFINES")
+endif()
 
 # Set default component name - that way external modules like RawSpeed will install their
 # materials under the default component and not under 'Unspecified'

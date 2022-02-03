@@ -81,7 +81,7 @@ int dt_imageio_export(const int32_t imgid, const char *filename, struct dt_image
 int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
                                  struct dt_imageio_module_format_t *format,
                                  struct dt_imageio_module_data_t *format_params, const gboolean ignore_exif,
-                                 const gboolean display_byteorder, const gboolean high_quality, const gboolean upscale,
+                                 const gboolean display_byteorder, const gboolean high_quality, const gboolean upscale, gboolean is_scaling,
                                  const gboolean thumbnail_export, const char *filter, const gboolean copy_metadata,
                                  const gboolean export_masks, dt_colorspaces_color_profile_type_t icc_type,
                                  const gchar *icc_filename, dt_iop_color_intent_t icc_intent,
@@ -105,6 +105,11 @@ void dt_imageio_flip_buffers_ui8_to_float(float *out, const uint8_t *in, const f
 // allocate buffer and return 0 on success along with largest jpg thumbnail from raw.
 int dt_imageio_large_thumbnail(const char *filename, uint8_t **buffer, int32_t *width, int32_t *height,
                                dt_colorspaces_color_profile_type_t *color_space);
+
+// lookup maker and model, dispatch lookup to rawspeed or libraw
+gboolean dt_imageio_lookup_makermodel(const char *maker, const char *model,
+                                      char *mk, int mk_len, char *md, int md_len,
+                                      char *al, int al_len);
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent

@@ -537,7 +537,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
       {
         dt_bauhaus_slider_set(g->scale, new_scale);
 
-        if(which != GDK_CONTROL_MASK)
+        if(!dt_modifier_is(which, GDK_CONTROL_MASK))
         {
           float new_whratio = 2.0 - 1.0 / ratio;
           dt_bauhaus_slider_set(g->whratio, new_whratio);
@@ -569,7 +569,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
         const float new_scale = 100.0 * new_vignette_h / max;
         dt_bauhaus_slider_set(g->scale, new_scale);
 
-        if(which != GDK_CONTROL_MASK)
+        if(!dt_modifier_is(which, GDK_CONTROL_MASK))
         {
           const float new_whratio = 1.0 / ratio;
           dt_bauhaus_slider_set(g->whratio, new_whratio);
@@ -635,7 +635,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
 {
   const dt_iop_vignette_data_t *data = (dt_iop_vignette_data_t *)piece->data;
   const dt_iop_roi_t *buf_in = &piece->buf_in;
-  const int ch = piece->colors;
+  const size_t ch = piece->colors;
   const gboolean unbound = data->unbound;
 
   /* Center coordinates of buf_in, these should not consider buf_in->{x,y}! */
@@ -1021,11 +1021,11 @@ void gui_init(struct dt_iop_module_t *self)
 GSList *mouse_actions(struct dt_iop_module_t *self)
 {
   GSList *lm = NULL;
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, 0, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, 0,
                                      _("[%s on node] change vignette/feather size"), self->name());
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK,
                                      _("[%s on node] change vignette/feather size keeping ratio"), self->name());
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK,
                                      _("[%s on center] move vignette"), self->name());
   return lm;
 }

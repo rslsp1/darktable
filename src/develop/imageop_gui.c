@@ -46,7 +46,7 @@ typedef struct dt_module_param_t
 
 static inline void process_changed_value(dt_iop_module_t *self, GtkWidget *widget, void *data)
 {
-  if(!self) self = DT_BAUHAUS_WIDGET(widget)->module;
+  if(!self) self = (dt_iop_module_t *)(DT_BAUHAUS_WIDGET(widget)->module);
 
   if(self->gui_changed) self->gui_changed(self, widget, data);
 
@@ -316,6 +316,10 @@ GtkWidget *dt_bauhaus_combobox_from_params(dt_iop_module_t *self, const char *pa
             dt_bauhaus_combobox_add_full(combobox, gettext(iter->description), DT_BAUHAUS_COMBOBOX_ALIGN_RIGHT, GINT_TO_POINTER(iter->value), NULL, TRUE);
         }
 
+        dt_action_t *action = dt_action_locate(&self->so->actions, (gchar **)(const gchar *[]){ *f->header.description ? f->header.description : f->header.field_name, NULL}, FALSE);
+        if(action && f->Enum.values)
+          g_hash_table_insert(darktable.control->combo_introspection, action, f->Enum.values);
+
         g_signal_connect(G_OBJECT(combobox), "value-changed", G_CALLBACK(dt_iop_combobox_enum_callback), p + f->header.offset);
       }
       else
@@ -344,26 +348,18 @@ GtkWidget *dt_bauhaus_toggle_from_params(dt_iop_module_t *self, const char *para
   dt_iop_params_t *p = (dt_iop_params_t *)self->params;
   dt_introspection_field_t *f = self->so->get_f(param);
 
-  GtkWidget *button, *label;
-  gchar *str;
+  GtkWidget *button = NULL;
+  gchar *str = NULL;
 
   if(f && f->header.type == DT_INTROSPECTION_TYPE_BOOL)
   {
-    if (*f->header.description)
-    {
-      // we do not want to support a context as it break all translations see #5498
-      // button = gtk_check_button_new_with_label(g_dpgettext2(NULL, "introspection description", f->header.description));
-      label = gtk_label_new(gettext(f->header.description));
-    }
-    else
-    {
-      str = dt_util_str_replace(f->header.field_name, "_", " ");
+    // we do not want to support a context as it break all translations see #5498
+    // button = gtk_check_button_new_with_label(g_dpgettext2(NULL, "introspection description", f->header.description));
+    str = *f->header.description
+        ? g_strdup(f->header.description)
+        : dt_util_str_replace(f->header.field_name, "_", " ");
 
-      label = gtk_label_new(_(str));
-
-      g_free(str);
-    }
-
+    GtkWidget *label = gtk_label_new(_(str));
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     button = gtk_check_button_new();
     gtk_container_add(GTK_CONTAINER(button), label);
@@ -371,59 +367,21 @@ GtkWidget *dt_bauhaus_toggle_from_params(dt_iop_module_t *self, const char *para
     module_param->module = self;
     module_param->param = p + f->header.offset;
     g_signal_connect_data(G_OBJECT(button), "toggled", G_CALLBACK(_iop_toggle_callback), module_param, (GClosureNotify)g_free, 0);
+
+    dt_action_define_iop(self, NULL, str, button, &dt_action_def_toggle);
   }
   else
   {
     str = g_strdup_printf("'%s' is not a bool/togglebutton parameter", param);
 
     button = gtk_check_button_new_with_label(str);
-
-    g_free(str);
   }
 
+  g_free(str);
   if(!self->widget) self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, DT_BAUHAUS_SPACE);
   gtk_box_pack_start(GTK_BOX(self->widget), button, FALSE, FALSE, 0);
 
   return button;
-}
-
-static void _send_button_press_event(GtkWidget *w, guint state)
-{
-  if(!(GTK_IS_BUTTON(w))) return;
-
-  GdkEvent *event = gdk_event_new(GDK_BUTTON_PRESS);
-  event->button.state = state;
-  event->button.button = 1;
-  event->button.window = gtk_widget_get_window(w);
-  g_object_ref(event->button.window);
-
-  gtk_widget_event(w, event);
-
-  gdk_event_free(event);
-}
-
-static gboolean _widget_visible(GtkWidget *w)
-{
-  GtkWidget *parent = gtk_widget_get_parent(w);
-  return gtk_widget_get_visible(w) &&
-         gtk_widget_get_visible(parent) &&
-         gtk_widget_get_visible(gtk_widget_get_parent(parent));
-}
-
-static gboolean _press_button_callback(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
-                                       GdkModifierType modifier, gpointer widget)
-{
-  if(_widget_visible(widget))
-    _send_button_press_event(widget, 0);
-  return TRUE;
-}
-
-static gboolean _ctrl_press_button_callback(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
-                                             GdkModifierType modifier, gpointer widget)
-{
-  if(_widget_visible(widget))
-    _send_button_press_event(widget, GDK_CONTROL_MASK);
-  return TRUE;
 }
 
 GtkWidget *dt_iop_togglebutton_new(dt_iop_module_t *self, const char *section, const gchar *label, const gchar *ctrl_label,
@@ -445,31 +403,7 @@ GtkWidget *dt_iop_togglebutton_new(dt_iop_module_t *self, const char *section, c
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), FALSE);
   if(GTK_IS_BOX(box)) gtk_box_pack_end(GTK_BOX(box), w, FALSE, FALSE, 0);
 
-  gchar *combined_label = section
-                        ? g_strdup_printf("%s`%s", section, label)
-                        : g_strdup(label);
-  gchar *combined_ctrl_label = ctrl_label && section
-                        ? g_strdup_printf("%s`%s", section, ctrl_label)
-                        : g_strdup(ctrl_label);
-
-  if(darktable.control->accel_initialising)
-  {
-    dt_accel_register_iop(self->so, local, combined_label, accel_key, mods);
-    if(ctrl_label) dt_accel_register_iop(self->so, local, combined_ctrl_label, 0, 0);
-  }
-  else
-  {
-    GClosure *closure = g_cclosure_new(G_CALLBACK(_press_button_callback), (gpointer)w, NULL);
-    dt_accel_connect_iop(self, combined_label, closure);
-    if(ctrl_label)
-    {
-      closure = g_cclosure_new(G_CALLBACK(_ctrl_press_button_callback), (gpointer)w, NULL);
-      dt_accel_connect_iop(self, combined_ctrl_label, closure);
-    }
-  }
-
-  g_free(combined_ctrl_label);
-  g_free(combined_label);
+  dt_action_define_iop(self, section, label, w, &dt_action_def_toggle);
 
   return w;
 }
@@ -505,6 +439,12 @@ GtkWidget *dt_iop_button_new(dt_iop_module_t *self, const gchar *label,
   if(GTK_IS_BOX(box)) gtk_box_pack_start(GTK_BOX(box), button, TRUE, TRUE, 0);
 
   return button;
+}
+
+gboolean dt_mask_scroll_increases(int up)
+{
+  const gboolean mask_down = dt_conf_get_bool("masks_scroll_down_increases");
+  return up ? !mask_down : mask_down;
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh

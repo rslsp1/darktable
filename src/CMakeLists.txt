@@ -5,11 +5,13 @@ include(CheckCXXCompilerFlag)
 include(CheckCSourceCompiles)
 include(CheckCXXSymbolExists)
 
+
 #
 # Add files for libdarktable
 #
 FILE(GLOB SOURCE_FILES
   "bauhaus/bauhaus.c"
+  "common/act_on.c"
   "common/atomic.c"
   "common/bilateral.c"
   "common/bilateralcl.c"
@@ -53,12 +55,12 @@ FILE(GLOB SOURCE_FILES
   "common/imageio_tiff.c"
   "common/imageio_im.c"
   "common/imageio_gm.c"
-  "common/imageio_rawspeed.cc"
   "common/import_session.c"
   "common/interpolation.c"
   "common/locallaplacian.c"
   "common/locallaplaciancl.c"
   "common/l10n.c"
+  "common/matrices.c"
   "common/metadata.c"
   "common/metadata_export.c"
   "common/mipmap_cache.c"
@@ -240,7 +242,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 if(APPLE AND (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
@@ -277,10 +278,6 @@ if(USE_OPENMP)
   endif()
 
   list(APPEND LIBS ${OpenMP_C_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
-
-  if(WIN32)
-    list(APPEND LIBS gomp)
-  endif(WIN32)
 endif(USE_OPENMP)
 
 if(USE_DARKTABLE_PROFILING)
@@ -362,6 +359,40 @@ if (USE_AVIF)
     endif()
 endif()
 
+if(USE_HEIF)
+  find_package(libheif 1.9.0 CONFIG)
+  if(TARGET heif)
+    list(APPEND LIBS heif)
+  else()
+    find_package(libheif 1.9.0)
+    if(TARGET libheif::libheif)
+      list(APPEND LIBS libheif::libheif)
+    endif()
+  endif()
+  if(libheif_FOUND)
+    add_definitions(-DHAVE_LIBHEIF=1)
+    list(APPEND SOURCES "common/imageio_heif.c")
+    set(DT_SUPPORTED_EXTENSIONS ${DT_SUPPORTED_EXTENSIONS} heif heic hif CACHE INTERNAL "")
+    if(NOT TARGET avif)
+      # libheif can handle avif, too
+      set(DT_SUPPORTED_EXTENSIONS ${DT_SUPPORTED_EXTENSIONS} avif CACHE INTERNAL "")
+    endif()
+  endif()
+endif()
+
+#  For now we use the LibRaw submodule
+if (USE_LIBRAW)
+#    find_package(libraw 0.20.2)
+#    if (libraw_FOUND)
+#        list(APPEND LIBS ${libraw_LIBRARY})
+#        add_definitions(-DHAVE_LIBRAW=1)
+#        list(APPEND SOURCES "common/imageio_libraw.c")
+#        set(DT_SUPPORTED_EXTENSIONS ${DT_SUPPORTED_EXTENSIONS} libraw CACHE INTERNAL "")
+#    endif()
+   add_definitions(-DHAVE_LIBRAW=1)
+   list(APPEND SOURCES "common/imageio_libraw.c")
+endif()
+
 if(USE_LENSFUN)
   find_package(LensFun)
   if(LensFun_FOUND)
@@ -401,10 +432,12 @@ if (USE_ISOBMFF)
     # exiv2 >= 0.27.4 provides optional support for ISOBMFF files.
     # This must be manually enabled during exiv2 build and can be checked with
     # the EXV_ENABLE_BMFF symbol.
-    check_cxx_symbol_exists(EXV_ENABLE_BMFF "exiv2/exiv2.hpp" HAVE_EXV_ENABLE_BMFF)
+    check_symbol_exists(EXV_ENABLE_BMFF
+      "${Exiv2_INCLUDE_DIRS}/exiv2/exv_conf.h"
+      HAVE_EXV_ENABLE_BMFF)
     if(HAVE_EXV_ENABLE_BMFF)
       add_definitions(-DHAVE_LIBEXIV2_WITH_ISOBMFF=1)
-      set(DT_SUPPORTED_EXTENSIONS ${DT_SUPPORTED_EXTENSIONS} cr3 heif CACHE INTERNAL "")
+      set(DT_SUPPORTED_EXTENSIONS ${DT_SUPPORTED_EXTENSIONS} cr3 CACHE INTERNAL "")
       message(STATUS "Exiv2 >= 0.27.4 found with ISOBMFF support (CR3, AVIF, HEIF)")
     else()
       message(STATUS "Exiv2 >= 0.27.4 found, but was not compiled with ISOBMFF support (CR3, AVIF, HEIF)")
@@ -613,7 +646,7 @@ if(NOT CUSTOM_CFLAGS)
 
   #-g MUST be set for ALL builds, or there will be no support for them when bugs happen
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MARCH} ${DT_REQ_INSTRUCTIONS} -g")
-  set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} -O2")
+  set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} -O2 -ftree-vectorize")
   set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -ffast-math -fno-finite-math-only")
   if(CMAKE_COMPILER_IS_GNUCC)
     if(BUILD_SSE2_CODEPATHS)
@@ -627,7 +660,7 @@ if(NOT CUSTOM_CFLAGS)
   endif()
 
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MARCH} ${DT_REQ_INSTRUCTIONS} -g")
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O2")
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O2 -ftree-vectorize")
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffast-math -fno-finite-math-only")
   if(CMAKE_COMPILER_IS_GNUCXX)
     if(BUILD_SSE2_CODEPATHS)
@@ -655,14 +688,14 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake.h" "${DARKTABLE_BINDIR}
 # Build external deps
 #
 if(USE_LUA)
-  find_package(Lua53 5.3)
-  if(Lua53_FOUND)
+  find_package(Lua54 5.4)
+  if(Lua54_FOUND)
     message(STATUS "Lua support: Enabled")
-    include_directories(SYSTEM ${Lua53_INCLUDE_DIRS})
-    list(APPEND LIBS ${Lua53_LDFLAGS})
+    include_directories(SYSTEM ${Lua54_INCLUDE_DIRS})
+    list(APPEND LIBS ${Lua54_LDFLAGS})
   else()
     if(DONT_USE_INTERNAL_LUA)
-      message(STATUS "Lua support: System library for lua 5.3 not found (to use darktable's version use -DDONT_USE_INTERNAL_LUA=Off)")
+      message(STATUS "Lua support: System library for lua 5.4 not found (to use darktable's version use -DDONT_USE_INTERNAL_LUA=Off)")
       set(USE_LUA OFF)
     else(DONT_USE_INTERNAL_LUA)
       message(STATUS "Lua support: System library not found (using darktable's version)")
@@ -670,7 +703,7 @@ if(USE_LUA)
       add_subdirectory(external/lua)
       list(APPEND LIBS lua)
     endif(DONT_USE_INTERNAL_LUA)
-  endif(Lua53_FOUND)
+  endif(Lua54_FOUND)
 
   if(USE_LUA)
     add_definitions("-DUSE_LUA")
@@ -723,9 +756,9 @@ else(USE_LUA)
 endif(USE_LUA)
 
 if(USE_LUA)
-  if(NOT Lua53_FOUND)
+  if(NOT Lua54_FOUND)
     list(APPEND LIB_DEPS lua) # 2nd half of the uglyness :/
-  endif(NOT Lua53_FOUND)
+  endif(NOT Lua54_FOUND)
   # liblautoc for lua automated interface generation
   add_library(lautoc_static STATIC IMPORTED)
   set_target_properties(lautoc_static PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/external/LuaAutoC/liblautoc.a POSITION_INDEPENDENT_CODE True)
@@ -806,6 +839,8 @@ if(BUILD_PRINT)
       "common/cups_print.h"
       "common/cups_print.c"
       "common/printprof.c"
+      "common/printing.h"
+      "common/printing.c"
       )
     set(SOURCES ${SOURCES} ${SOURCE_FILES_PRINT})
     list(APPEND LIBS ${CUPS_LIBRARIES})
@@ -918,13 +953,16 @@ if(LIB_DEPS)
 endif()
 
 target_link_libraries(lib_darktable PUBLIC ${STATIC_LIBS})
-target_link_libraries(lib_darktable PRIVATE rawspeed)
 target_link_libraries(lib_darktable PRIVATE whereami)
 target_link_libraries(lib_darktable PUBLIC ${LIBS})
 
 unset(LIBS)
 unset(STATIC_LIBS)
 unset(LIB_DEPS)
+
+add_library(lib_darktable_imageio_rawspeed STATIC common/imageio_rawspeed.cc)
+target_link_libraries(lib_darktable_imageio_rawspeed PRIVATE rawspeed)
+target_link_libraries(lib_darktable PRIVATE lib_darktable_imageio_rawspeed)
 
 #
 # Install lib_darktable
@@ -998,3 +1036,15 @@ InstallDependencyFiles()
 
 # Tell CPack about the components and group the data components together (CPACK_COMPONENT_${COMPONENT_NAME_ALL_CAPS}_GROUP).
 set(CPACK_COMPONENTS_ALL DTApplication DTDebugSymbols DTDocuments)
+
+if (USE_LIBRAW)
+  set(LIBRAW_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/LibRaw" CACHE STRING "Relative path to libraw directory (default=CMAKE_CURRENT_SOURCE_DIR)")
+  if(NOT USE_OPENMP)
+    set(ENABLE_OPENMP OFF CACHE BOOL "")
+  endif()
+  set(DT_SUPPORTED_EXTENSIONS ${DT_SUPPORTED_EXTENSIONS} libraw CACHE INTERNAL "")
+
+  # LibRaw sub-module
+  add_subdirectory(external/LibRaw-cmake)
+  target_link_libraries(lib_darktable PRIVATE libraw::libraw)
+endif()

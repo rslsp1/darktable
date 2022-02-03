@@ -136,6 +136,13 @@ static void _ungroup_helper_function(void)
   }
 }
 
+static gboolean _duplicate_virgin(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval, GdkModifierType modifier, gpointer data)
+{
+  dt_control_duplicate_images(TRUE);
+
+  return TRUE;
+}
+
 static void button_clicked(GtkWidget *widget, gpointer user_data)
 {
   const int i = GPOINTER_TO_INT(user_data);
@@ -145,7 +152,7 @@ static void button_clicked(GtkWidget *widget, gpointer user_data)
     dt_control_delete_images();
   // else if(i == 2) dt_control_write_sidecar_files();
   else if(i == 3)
-    dt_control_duplicate_images();
+    dt_control_duplicate_images(FALSE);
   else if(i == 4)
     dt_control_flip_images(1);
   else if(i == 5)
@@ -190,14 +197,14 @@ static void _update(dt_lib_module_t *self)
 {
   dt_lib_cancel_postponed_update(self);
   dt_lib_image_t *d = (dt_lib_image_t *)self->data;
-  const GList *imgs = dt_view_get_images_to_act_on(FALSE, FALSE, FALSE);
+  const int nbimgs = dt_act_on_get_images_nb(FALSE, FALSE);
 
-  const int act_on_any = imgs != NULL;              // list length > 0 ?
-  const int act_on_one = g_list_is_singleton(imgs); // list length == 1 ?
-  const int act_on_mult = act_on_any && !act_on_one;// list length > 1 ?
+  const gboolean act_on_any = (nbimgs > 0);
+  const gboolean act_on_one = (nbimgs == 1);
+  const gboolean act_on_mult = (nbimgs > 1);
   const uint32_t selected_cnt = dt_collection_get_selected_count(darktable.collection);
   const gboolean can_paste
-      = d->imageid > 0 && (act_on_mult || (act_on_one && (d->imageid != dt_view_get_image_to_act_on())));
+      = d->imageid > 0 && (act_on_mult || (act_on_one && (d->imageid != dt_act_on_get_main_image())));
 
   gtk_widget_set_sensitive(GTK_WIDGET(d->remove_button), act_on_any);
   gtk_widget_set_sensitive(GTK_WIDGET(d->delete_button), act_on_any);
@@ -238,7 +245,7 @@ static void _update(dt_lib_module_t *self)
   else
   {
     // exact one image to act on
-    const int imgid = dt_view_get_image_to_act_on();
+    const int imgid = dt_act_on_get_main_image();
     if(imgid >= 0)
     {
       dt_image_t *img = dt_image_cache_get(darktable.image_cache, imgid, 'r');
@@ -291,7 +298,7 @@ static void _image_preference_changed(gpointer instance, gpointer user_data)
 {
   dt_lib_module_t *self = (dt_lib_module_t*)user_data;
   dt_lib_image_t *d = (dt_lib_image_t *)self->data;
-  gtk_button_set_label(GTK_BUTTON(d->delete_button), _image_get_delete_button_label());
+  gtk_label_set_text(GTK_LABEL(gtk_bin_get_child(GTK_BIN(d->delete_button))), _image_get_delete_button_label());
   gtk_widget_set_tooltip_text(d->delete_button, _image_get_delete_button_tooltip());
 }
 
@@ -317,7 +324,7 @@ static void _execute_metadata(dt_lib_module_t *self, const int action)
   const gboolean geotag_flag = dt_conf_get_bool("plugins/lighttable/copy_metadata/geotags");
   const gboolean dttag_flag = dt_conf_get_bool("plugins/lighttable/copy_metadata/tags");
   const int imageid = d->imageid;
-  const GList *imgs = dt_view_get_images_to_act_on(FALSE, TRUE, FALSE);
+  GList *imgs = dt_act_on_get_images(FALSE, TRUE, FALSE);
   if(imgs)
   {
     // for all the above actions, we don't use the grpu_on tag, as grouped images have already been added to image
@@ -374,8 +381,12 @@ static void _execute_metadata(dt_lib_module_t *self, const int action)
       dt_undo_end_group(darktable.undo);
       dt_image_synch_xmps(imgs);
       dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, DT_COLLECTION_PROP_METADATA,
-                                 g_list_copy((GList *)imgs));
+                                 imgs);
       dt_control_queue_redraw_center();
+    }
+    else
+    {
+      g_list_free(imgs);
     }
   }
 }
@@ -384,7 +395,7 @@ static void copy_metadata_callback(GtkWidget *widget, dt_lib_module_t *self)
 {
   dt_lib_image_t *d = (dt_lib_image_t *)self->data;
 
-  d->imageid = dt_view_get_image_to_act_on();
+  d->imageid = dt_act_on_get_main_image();
 
   _update(self);
 }
@@ -458,11 +469,14 @@ void gui_init(dt_lib_module_t *self)
   dt_lib_image_t *d = (dt_lib_image_t *)malloc(sizeof(dt_lib_image_t));
   self->data = (void *)d;
   self->timeout_handle = 0;
-  self->widget = gtk_notebook_new();
+
+  static struct dt_action_def_t notebook_def = { };
+  self->widget = GTK_WIDGET(dt_ui_notebook_new(&notebook_def));
+  dt_action_define(DT_ACTION(self), NULL, N_("page"), GTK_WIDGET(self->widget), &notebook_def);
   dt_gui_add_help_link(self->widget, dt_get_help_url("image"));
 
-  GtkWidget *page1 = dt_ui_notebook_page(GTK_NOTEBOOK(self->widget), _("images"), NULL);
-  GtkWidget *page2 = dt_ui_notebook_page(GTK_NOTEBOOK(self->widget), _("metadata"), NULL);
+  GtkWidget *page1 = dt_ui_notebook_page(GTK_NOTEBOOK(self->widget), N_("images"), NULL);
+  GtkWidget *page2 = dt_ui_notebook_page(GTK_NOTEBOOK(self->widget), N_("metadata"), NULL);
 
   // images operations
   d->page1 = gtk_grid_new();
@@ -588,7 +602,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_grid_attach(grid, d->clear_metadata_button, 4, line++, 2, 1);
   g_signal_connect(G_OBJECT(d->clear_metadata_button), "clicked", G_CALLBACK(clear_metadata_callback), self);
 
-  GtkWidget *pastemode = dt_bauhaus_combobox_new(NULL);
+  GtkWidget *pastemode = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(pastemode, NULL, N_("mode"));
   dt_bauhaus_combobox_add(pastemode, _("merge"));
   dt_bauhaus_combobox_add(pastemode, _("overwrite"));
@@ -656,13 +670,14 @@ void init_key_accels(dt_lib_module_t *self)
   dt_accel_register_lib(self, NC_("accel", "rotate selected images 90 degrees CCW"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "create HDR"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "duplicate"), GDK_KEY_d, GDK_CONTROL_MASK);
+  dt_accel_register_lib(self, NC_("accel", "duplicate virgin"), GDK_KEY_d, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
   dt_accel_register_lib(self, NC_("accel", "reset rotation"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "copy the image locally"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "resync the local copy"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "refresh exif"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "set monochrome image"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "set color image"), 0, 0);
-  dt_accel_register_lib(self, NC_("accel", "replace metadata"), 0, 0);
+  dt_accel_register_lib(self, NC_("accel", "copy metadata"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "paste metadata"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "clear metadata"), 0, 0);
   // Grouping keys
@@ -682,6 +697,7 @@ void connect_key_accels(dt_lib_module_t *self)
   dt_accel_connect_button_lib(self, "rotate selected images 90 degrees CCW", d->rotate_ccw_button);
   dt_accel_connect_button_lib(self, "create HDR", d->create_hdr_button);
   dt_accel_connect_button_lib(self, "duplicate", d->duplicate_button);
+  dt_accel_connect_lib(self, "duplicate virgin", g_cclosure_new(G_CALLBACK(_duplicate_virgin), self, NULL));
   dt_accel_connect_button_lib(self, "reset rotation", d->reset_button);
   dt_accel_connect_button_lib(self, "copy the image locally", d->cache_button);
   dt_accel_connect_button_lib(self, "resync the local copy", d->uncache_button);
@@ -708,17 +724,19 @@ static int lua_button_clicked_cb(lua_State* L)
 {
   lua_callback_data * data = lua_touserdata(L, 1);
   dt_lua_module_entry_push(L, "lib", data->self->plugin_name);
-  lua_getuservalue(L, -1);
+  lua_getiuservalue(L, -1, 1);
   lua_getfield(L, -1, "callbacks");
   lua_getfield(L, -1, data->key);
   lua_pushstring(L, data->key);
 
   GList *image = dt_collection_get_selected(darktable.collection, -1);
   lua_newtable(L);
+  int table_index = 1;
   while(image)
   {
     luaA_push(L, dt_lua_image_t, &image->data);
-    luaL_ref(L, -2);
+    lua_seti(L, -2, table_index);
+    table_index++;
     image = g_list_delete_link(image, image);
   }
 
@@ -739,7 +757,7 @@ static int lua_register_action(lua_State *L)
   lua_settop(L, 3);
   dt_lib_module_t *self = lua_touserdata(L, lua_upvalueindex(1));
   dt_lua_module_entry_push(L, "lib", self->plugin_name);
-  lua_getuservalue(L,-1);
+  lua_getiuservalue(L, -1, 1);
   const char* name = luaL_checkstring(L, 1);
   const char* key = luaL_checkstring(L, 2);
   luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -767,7 +785,7 @@ static int lua_register_action(lua_State *L)
 
   // save the signal connection in case we need to destroy it later
   dt_lua_module_entry_push(L, "lib", self->plugin_name);
-  lua_getuservalue(L, -1);
+  lua_getiuservalue(L, -1, 1);
   lua_getfield(L, -1, "signal_handlers");
   lua_pushstring(L, name);
   lua_pushinteger(L, s);
@@ -796,7 +814,7 @@ static int lua_destroy_action(lua_State *L)
       // remove the callback
 
       dt_lua_module_entry_push(L, "lib", self->plugin_name);
-      lua_getuservalue(L, -1);
+      lua_getiuservalue(L, -1, 1);
       lua_getfield(L, -1, "callbacks");
       lua_pushstring(L, name);
       lua_pushnil(L);
@@ -805,7 +823,7 @@ static int lua_destroy_action(lua_State *L)
       // disconnect the signal
 
       dt_lua_module_entry_push(L, "lib", self->plugin_name);
-      lua_getuservalue(L, -1);
+      lua_getiuservalue(L, -1, 1);
       lua_getfield(L, -1, "signal_handlers");
       lua_pushstring(L, name);
       lua_gettable(L, -2);
@@ -870,13 +888,13 @@ void init(struct dt_lib_module_t *self)
   dt_lua_type_register_const_type(L, my_type, "set_sensitive");
 
   dt_lua_module_entry_push(L, "lib", self->plugin_name);
-  lua_getuservalue(L, -1);
+  lua_getiuservalue(L, -1, 1);
   lua_newtable(L);
   lua_setfield(L, -2, "callbacks");
   lua_pop(L, 2);
 
   dt_lua_module_entry_push(L, "lib", self->plugin_name);
-  lua_getuservalue(L, -1);
+  lua_getiuservalue(L, -1, 1);
   lua_newtable(L);
   lua_setfield(L, -2, "signal_handlers");
   lua_pop(L, 2);

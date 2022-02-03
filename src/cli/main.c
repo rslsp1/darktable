@@ -416,7 +416,7 @@ int main(int argc, char *arg[])
   m_arg[m_argc++] = "--library";
   m_arg[m_argc++] = ":memory:";
   m_arg[m_argc++] = "--conf";
-  m_arg[m_argc++] = "write_sidecar_files=FALSE";
+  m_arg[m_argc++] = "write_sidecar_files=never";
   for(; k < argc; k++) m_arg[m_argc++] = arg[k];
   m_arg[m_argc] = NULL;
 
@@ -682,6 +682,7 @@ int main(int argc, char *arg[])
   // any longer ...
   g_strlcpy((char *)sdata, output_filename, DT_MAX_PATH_FOR_PARAMS);
   // all is good now, the last line didn't happen.
+  g_free(output_filename);
 
   format = dt_imageio_get_format_by_name(output_ext);
   if(format == NULL)
@@ -689,7 +690,6 @@ int main(int argc, char *arg[])
     fprintf(stderr, _("unknown extension '.%s'"), output_ext);
     fprintf(stderr, "\n");
     free(m_arg);
-    g_free(output_filename);
     g_free(output_ext);
     exit(1);
   }
@@ -699,7 +699,6 @@ int main(int argc, char *arg[])
   {
     fprintf(stderr, "%s\n", _("failed to get parameters from format module, aborting export ..."));
     free(m_arg);
-    g_free(output_filename);
     g_free(output_ext);
     exit(1);
   }

@@ -124,6 +124,9 @@ gboolean dt_thumbtable_ensure_imgid_visibility(dt_thumbtable_t *table, int imgid
 // check if the mentioned image is visible
 gboolean dt_thumbtable_check_imgid_visibility(dt_thumbtable_t *table, int imgid);
 
+// drag & drop receive function - handles dropping of files in the center view (files are added to the library)
+void dt_thumbtable_event_dnd_received(GtkWidget *widget, GdkDragContext *context, gint x, gint y, GtkSelectionData *selection_data, guint target_type, guint time, gpointer user_data);
+
 // move by key actions.
 // this key accels are not managed here but inside view
 gboolean dt_thumbtable_key_move(dt_thumbtable_t *table, dt_thumbtable_move_t move, gboolean select);
@@ -136,9 +139,6 @@ void dt_thumbtable_scrollbar_changed(dt_thumbtable_t *table, float x, float y);
 
 // init all accels
 void dt_thumbtable_init_accels(dt_thumbtable_t *table);
-// connect all accels if thumbtable is active in the view and they are not loaded
-// disconnect them if not
-void dt_thumbtable_update_accels_connection(dt_thumbtable_t *table, int view);
 
 // change the type of overlays that should be shown (over or under the image)
 void dt_thumbtable_set_overlays_mode(dt_thumbtable_t *table, dt_thumbnail_overlay_t over);

@@ -61,14 +61,15 @@ static void dual_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict r
   const float contrastf = slider2contrast(dual_threshold);
 
   dt_masks_calc_rawdetail_mask(rgb_data, blend, tmp, width, height, piece->pipe->dsc.temperature.coeffs);
-  dt_masks_calc_detail_mask(blend, blend, tmp, width, height, contrastf, TRUE);  
+  dt_masks_calc_detail_mask(blend, blend, tmp, width, height, contrastf, TRUE);
 
   if(dual_mask)
   {
+    piece->pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(blend, rgb_data, vng_image, width, height) \
-  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64) 
+  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64)
 #endif
     for(int idx = 0; idx < width * height; idx++)
     {
@@ -81,7 +82,7 @@ static void dual_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict r
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(blend, rgb_data, vng_image, width, height) \
-  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64) 
+  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64)
 #endif
     for(int idx = 0; idx < width * height; idx++)
     {
@@ -108,10 +109,13 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
   dt_iop_demosaic_global_data_t *gd = (dt_iop_demosaic_global_data_t *)self->global_data;
 
   const float contrastf = slider2contrast(data->dual_thrs);
+  if(showmask)
+    piece->pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
 
   {
     size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
-    const float wb[3] = {piece->pipe->dsc.temperature.coeffs[0], piece->pipe->dsc.temperature.coeffs[1], piece->pipe->dsc.temperature.coeffs[2]};
+    const dt_aligned_pixel_t wb = { piece->pipe->dsc.temperature.coeffs[0], piece->pipe->dsc.temperature.coeffs[1],
+                                    piece->pipe->dsc.temperature.coeffs[2] };
     const int kernel = darktable.opencl->blendop->kernel_calc_Y0_mask;
     dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), &detail);
     dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), &high_image);
@@ -122,7 +126,7 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
     dt_opencl_set_kernel_arg(devid, kernel, 6, sizeof(float), &wb[2]);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) return FALSE;
-  }  
+  }
 
   {
     size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
@@ -133,14 +137,14 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
     dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), &height);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) return FALSE;
-  }  
+  }
 
   {
     const int flag = 1;
     size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
     const int kernel = darktable.opencl->blendop->kernel_calc_blend;
-    dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), &blend);  
-    dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), &detail);  
+    dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), &blend);
+    dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), &detail);
     dt_opencl_set_kernel_arg(devid, kernel, 2, sizeof(int), &width);
     dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), &height);
     dt_opencl_set_kernel_arg(devid, kernel, 4, sizeof(float), &contrastf);
@@ -150,31 +154,8 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
   }
 
   {
-    // For a blurring sigma of 2.0f a 13x13 kernel would be optimally required but the 9x9 is by far good enough here 
-    float kernel[9][9];
-    const float temp = -2.0f * (2.0f * 2.0f);
-    float sum = 0.0f;
-    for(int i = -4; i <= 4; i++)
-    {
-      for(int j = -4; j <= 4; j++)
-      {
-        kernel[i + 4][j + 4] = expf(((i*i) + (j*j)) / temp);
-        sum += kernel[i + 4][j + 4];
-      }
-    }
-    for(int i = 0; i < 9; i++)
-    {
-#if defined(__GNUC__)
-  #pragma GCC ivdep
-#endif
-      for(int j = 0; j < 9; j++)
-        kernel[i][j] /= sum;
-    }
-
-    float blurmat[13] = { kernel[4][4], kernel[3][4], kernel[3][3],               // 00: c00 c10 c11
-                          kernel[2][4], kernel[2][3], kernel[2][2],               // 03: c20 c21 c22
-                          kernel[1][4], kernel[1][3], kernel[1][2], kernel[1][1], // 06: c30 c31 c32 c33
-                          kernel[0][4], kernel[0][3], kernel[0][2]};              // 10: c40 c41 c42
+    float blurmat[13];
+    dt_masks_blur_9x9_coeff(blurmat, 2.0f);
     cl_mem dev_blurmat = NULL;
     dev_blurmat = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * 13, blurmat);
     if(dev_blurmat != NULL)

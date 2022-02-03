@@ -599,9 +599,13 @@ static void _default_process_tiling_ptp(struct dt_iop_module_t *self, struct dt_
   dt_develop_tiling_t tiling = { 0 };
   self->tiling_callback(self, piece, roi_in, roi_out, &tiling);
 
+  /* shall we enforce tiling */
+  const gboolean force_tile = (darktable.unmuted & DT_DEBUG_TILING);
   /* tiling really does not make sense in these cases. standard process() is not better or worse than we are
    */
-  if(tiling.factor < 2.2f && tiling.overhead < 0.2f * roi_in->width * roi_in->height * max_bpp)
+  if((tiling.factor < 2.2f)
+     && (tiling.overhead < 0.2f * roi_in->width * roi_in->height * max_bpp)
+     && !force_tile)
   {
     dt_print(DT_DEBUG_DEV, "[default_process_tiling_ptp] no need to use tiling for module '%s' as no real "
                            "memory saving to be expected\n",
@@ -610,7 +614,7 @@ static void _default_process_tiling_ptp(struct dt_iop_module_t *self, struct dt_
   }
 
   /* calculate optimal size of tiles */
-  float available = dt_conf_get_float("host_memory_limit") * 1024.0f * 1024.0f;
+  float available = force_tile ? 500.0f * 1024.0f * 1024.0f : dt_conf_get_float("host_memory_limit") * 1024.0f * 1024.0f;
   assert(available >= 500.0f * 1024.0f * 1024.0f);
   /* correct for size of ivoid and ovoid which are needed on top of tiling */
   available = fmax(available - ((float)roi_out->width * roi_out->height * out_bpp)
@@ -620,7 +624,7 @@ static void _default_process_tiling_ptp(struct dt_iop_module_t *self, struct dt_
   /* we ignore the above value if singlebuffer_limit (is defined and) is higher than available/tiling.factor.
      this will mainly allow tiling for modules with high and "unpredictable" memory demand which is
      reflected in high values of tiling.factor (take bilateral noise reduction as an example). */
-  float singlebuffer = dt_conf_get_float("singlebuffer_limit") * 1024.0f * 1024.0f;
+  float singlebuffer = force_tile ? 2.0f * 1024.0f * 1024.0f : dt_conf_get_float("singlebuffer_limit") * 1024.0f * 1024.0f;
   singlebuffer = fmax(singlebuffer, 2.0f * 1024.0f * 1024.0f);
   const float factor = fmax(tiling.factor, 1.0f);
   const float maxbuf = fmax(tiling.maxbuf, 1.0f);
@@ -717,10 +721,9 @@ static void _default_process_tiling_ptp(struct dt_iop_module_t *self, struct dt_
   }
 
   /* store processed_maximum to be re-used and aggregated */
-  float processed_maximum_saved[4];
-  float processed_maximum_new[4] = { 1.0f };
-  for(int k = 0; k < 4; k++) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
-
+  dt_aligned_pixel_t processed_maximum_saved;
+  dt_aligned_pixel_t processed_maximum_new = { 1.0f };
+  for_four_channels(k) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
 
   /* iterate over tiles */
   for(size_t tx = 0; tx < tiles_x; tx++)
@@ -867,9 +870,11 @@ static void _default_process_tiling_roi(struct dt_iop_module_t *self, struct dt_
   dt_develop_tiling_t tiling = { 0 };
   self->tiling_callback(self, piece, roi_in, roi_out, &tiling);
 
+  /* shall we enforce tiling */
+  const gboolean force_tile = (darktable.unmuted & DT_DEBUG_TILING);
   /* tiling really does not make sense in these cases. standard process() is not better or worse than we are
    */
-  if(tiling.factor < 2.2f && tiling.overhead < 0.2f * roi_in->width * roi_in->height * max_bpp)
+  if((tiling.factor < 2.2f && tiling.overhead < 0.2f * roi_in->width * roi_in->height * max_bpp) && !force_tile)
   {
     dt_print(DT_DEBUG_DEV, "[default_process_tiling_roi] no need to use tiling for module '%s' as no real "
                            "memory saving to be expected\n",
@@ -878,7 +883,7 @@ static void _default_process_tiling_roi(struct dt_iop_module_t *self, struct dt_
   }
 
   /* calculate optimal size of tiles */
-  float available = dt_conf_get_float("host_memory_limit") * 1024.0f * 1024.0f;
+  float available = force_tile ? 500.0f * 1024.0f * 1024.0f : dt_conf_get_float("host_memory_limit") * 1024.0f * 1024.0f;
   assert(available >= 500.0f * 1024.0f * 1024.0f);
   /* correct for size of ivoid and ovoid which are needed on top of tiling */
   available = fmax(available - ((float)roi_out->width * roi_out->height * out_bpp)
@@ -888,7 +893,7 @@ static void _default_process_tiling_roi(struct dt_iop_module_t *self, struct dt_
   /* we ignore the above value if singlebuffer_limit (is defined and) is higher than available/tiling.factor.
      this will mainly allow tiling for modules with high and "unpredictable" memory demand which is
      reflected in high values of tiling.factor (take bilateral noise reduction as an example). */
-  float singlebuffer = dt_conf_get_float("singlebuffer_limit") * 1024.0f * 1024.0f;
+  float singlebuffer = force_tile ? 2.0f * 1024.0f * 1024.0f : dt_conf_get_float("singlebuffer_limit") * 1024.0f * 1024.0f;
   singlebuffer = fmax(singlebuffer, 2.0f * 1024.0f * 1024.0f);
   const float factor = fmax(tiling.factor, 1.0f);
   const float maxbuf = fmax(tiling.maxbuf, 1.0f);
@@ -985,9 +990,9 @@ static void _default_process_tiling_roi(struct dt_iop_module_t *self, struct dt_
 
 
   /* store processed_maximum to be re-used and aggregated */
-  float processed_maximum_saved[4];
-  float processed_maximum_new[4] = { 1.0f };
-  for(int k = 0; k < 4; k++) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
+  dt_aligned_pixel_t processed_maximum_saved;
+  dt_aligned_pixel_t processed_maximum_new = { 1.0f };
+  for_four_channels(k) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
 
   /* iterate over tiles */
   for(size_t tx = 0; tx < tiles_x; tx++)
@@ -996,8 +1001,8 @@ static void _default_process_tiling_roi(struct dt_iop_module_t *self, struct dt_
       piece->pipe->tiling = 1;
 
       /* the output dimensions of the good part of this specific tile */
-      size_t wd = (tx + 1) * tile_wd > roi_out->width ? roi_out->width - tx * tile_wd : tile_wd;
-      size_t ht = (ty + 1) * tile_ht > roi_out->height ? roi_out->height - ty * tile_ht : tile_ht;
+      const size_t wd = (tx + 1) * tile_wd > roi_out->width ? (size_t)roi_out->width - tx * tile_wd : tile_wd;
+      const size_t ht = (ty + 1) * tile_ht > roi_out->height ? (size_t)roi_out->height - ty * tile_ht : tile_ht;
 
       /* roi_in and roi_out of good part: oroi_good easy to calculate based on number and dimension of tile.
          iroi_good is calculated by modify_roi_in() of respective module */
@@ -1230,10 +1235,13 @@ static int _default_process_tiling_cl_ptp(struct dt_iop_module_t *self, struct d
             ? 0.85f
             : 1.0f; // avoid problems when pinned buffer size gets too close to max_mem_alloc size
 
+  /* shall we enforce tiling */
+  const gboolean force_tile = (darktable.unmuted & DT_DEBUG_TILING);
   /* calculate optimal size of tiles */
   float headroom = dt_conf_get_float("opencl_memory_headroom") * 1024.0f * 1024.0f;
   headroom = fmin(fmax(headroom, 0.0f), (float)darktable.opencl->dev[devid].max_global_mem);
-  const float available = darktable.opencl->dev[devid].max_global_mem - headroom;
+  float available = darktable.opencl->dev[devid].max_global_mem - headroom;
+  if(force_tile) available = fmin(available, 500.0f * 1024.0f * 1024.0f);
   const float factor = fmax(tiling.factor_cl + pinned_buffer_overhead, 1.0f);
   const float singlebuffer = fmin(fmax((available - tiling.overhead) / factor, 0.0f),
                                   pinned_buffer_slack * darktable.opencl->dev[devid].max_mem_alloc);
@@ -1321,9 +1329,9 @@ static int _default_process_tiling_cl_ptp(struct dt_iop_module_t *self, struct d
            tiles_x, tiles_y, width, height, overlap);
 
   /* store processed_maximum to be re-used and aggregated */
-  float processed_maximum_saved[4];
-  float processed_maximum_new[4] = { 1.0f };
-  for(int k = 0; k < 4; k++) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
+  dt_aligned_pixel_t processed_maximum_saved;
+  dt_aligned_pixel_t processed_maximum_new = { 1.0f };
+  for_four_channels(k) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
 
   /* reserve pinned input and output memory for host<->device data transfer */
   if(use_pinned_memory)
@@ -1597,10 +1605,13 @@ static int _default_process_tiling_cl_roi(struct dt_iop_module_t *self, struct d
             ? 0.85f
             : 1.0f; // avoid problems when pinned buffer size gets too close to max_mem_alloc size
 
+  /* shall we enforce tiling */
+  const gboolean force_tile = (darktable.unmuted & DT_DEBUG_TILING);
   /* calculate optimal size of tiles */
   float headroom = dt_conf_get_float("opencl_memory_headroom") * 1024.0f * 1024.0f;
   headroom = fmin(fmax(headroom, 0.0f), (float)darktable.opencl->dev[devid].max_global_mem);
-  const float available = darktable.opencl->dev[devid].max_global_mem - headroom;
+  float available = darktable.opencl->dev[devid].max_global_mem - headroom;
+  if(force_tile) available = fmin(available, 500.0f * 1024.0f * 1024.0f);
   const float factor = fmax(tiling.factor_cl + pinned_buffer_overhead, 1.0f);
   const float singlebuffer = fmin(fmax((available - tiling.overhead) / factor, 0.0f),
                                   pinned_buffer_slack * darktable.opencl->dev[devid].max_mem_alloc);
@@ -1700,9 +1711,9 @@ static int _default_process_tiling_cl_roi(struct dt_iop_module_t *self, struct d
 
 
   /* store processed_maximum to be re-used and aggregated */
-  float processed_maximum_saved[4];
-  float processed_maximum_new[4] = { 1.0f };
-  for(int k = 0; k < 4; k++) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
+  dt_aligned_pixel_t processed_maximum_saved;
+  dt_aligned_pixel_t processed_maximum_new = { 1.0f };
+  for_four_channels(k) processed_maximum_saved[k] = piece->pipe->dsc.processed_maximum[k];
 
   /* reserve pinned input and output memory for host<->device data transfer */
   if(use_pinned_memory)
@@ -1768,8 +1779,8 @@ static int _default_process_tiling_cl_roi(struct dt_iop_module_t *self, struct d
       piece->pipe->tiling = 1;
 
       /* the output dimensions of the good part of this specific tile */
-      const size_t wd = (tx + 1) * tile_wd > roi_out->width ? roi_out->width - tx * tile_wd : tile_wd;
-      const size_t ht = (ty + 1) * tile_ht > roi_out->height ? roi_out->height - ty * tile_ht : tile_ht;
+      const size_t wd = (tx + 1) * tile_wd > roi_out->width ? (size_t)roi_out->width - tx * tile_wd : tile_wd;
+      const size_t ht = (ty + 1) * tile_ht > roi_out->height ? (size_t)roi_out->height - ty * tile_ht : tile_ht;
 
       /* roi_in and roi_out of good part: oroi_good easy to calculate based on number and dimension of tile.
          iroi_good is calculated by modify_roi_in() of respective module */

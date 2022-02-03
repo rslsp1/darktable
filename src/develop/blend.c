@@ -88,9 +88,7 @@ static inline dt_develop_blend_colorspace_t _blend_default_module_blend_colorspa
 
 dt_develop_blend_colorspace_t dt_develop_blend_default_module_blend_colorspace(dt_iop_module_t *module)
 {
-  gchar *workflow = dt_conf_get_string("plugins/darkroom/workflow");
-  const gboolean is_scene_referred = strcmp(workflow, "scene-referred") == 0;
-  g_free(workflow);
+  const gboolean is_scene_referred = dt_conf_is_equal("plugins/darkroom/workflow", "scene-referred");
   return _blend_default_module_blend_colorspace(module, is_scene_referred);
 }
 
@@ -206,7 +204,7 @@ int dt_develop_blendif_init_masking_profile(struct dt_dev_pixelpipe_iop_t *piece
                                             dt_develop_blend_colorspace_t cst)
 {
   // Bradford adaptation matrix from http://www.brucelindbloom.com/index.html?Eqn_ChromAdapt.html
-  const float M[3][4] DT_ALIGNED_ARRAY = {
+  const dt_colormatrix_t M = {
       {  0.9555766f, -0.0230393f,  0.0631636f, 0.0f },
       { -0.0282895f,  1.0099416f,  0.0210077f, 0.0f },
       {  0.0122982f, -0.0204830f,  1.3299098f, 0.0f },
@@ -224,8 +222,9 @@ int dt_develop_blendif_init_masking_profile(struct dt_dev_pixelpipe_iop_t *piece
     {
       float sum = 0.0f;
       for(size_t i = 0; i < 3; i++)
-        sum += M[y][i] * profile->matrix_in[x + i * 3];
-      blending_profile->matrix_out[y * 3 + x] = sum;
+        sum += M[y][i] * profile->matrix_in[i][x];
+      blending_profile->matrix_out[y][x] = sum;
+      blending_profile->matrix_out_transposed[x][y] = sum;
     }
   }
 
@@ -241,10 +240,11 @@ static inline float _detail_mask_threshold(const float level, const gboolean det
 static void _refine_with_detail_mask(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *piece, float *mask, const struct dt_iop_roi_t *const roi_in, const struct dt_iop_roi_t *const roi_out, const float level)
 {
   if(level == 0.0f) return;
+  const gboolean info = ((darktable.unmuted & DT_DEBUG_MASKS) && (piece->pipe->type == DT_DEV_PIXELPIPE_FULL));
 
   const gboolean detail = (level > 0.0f);
   const float threshold = _detail_mask_threshold(level, detail);
-  
+
   float *tmp = NULL;
   float *lum = NULL;
   float *warp_mask = NULL;
@@ -254,11 +254,12 @@ static void _refine_with_detail_mask(struct dt_iop_module_t *self, struct dt_dev
 
   const int iwidth  = p->rawdetail_mask_roi.width;
   const int iheight = p->rawdetail_mask_roi.height;
-  const int owidth  = roi_in->width;
-  const int oheight = roi_in->height;
+  const int owidth  = roi_out->width;
+  const int oheight = roi_out->height;
+  if(info) fprintf(stderr, "[_refine_with_detail_mask] in module %s %ix%i --> %ix%i\n", self->op, iwidth, iheight, owidth, oheight);
 
   const int bufsize = MAX(iwidth * iheight, owidth * oheight);
-  
+
   tmp = dt_alloc_align_float(bufsize);
   lum = dt_alloc_align_float(bufsize);
   if((tmp == NULL) || (lum == NULL)) goto error;
@@ -266,6 +267,7 @@ static void _refine_with_detail_mask(struct dt_iop_module_t *self, struct dt_dev
   dt_masks_calc_detail_mask(p->rawdetail_mask_data, lum, tmp, iwidth, iheight, threshold, detail);
   dt_free_align(tmp);
   tmp = NULL;
+
   // here we have the slightly blurred full detail mask available
   warp_mask = dt_dev_distort_detail_mask(p, lum, self);
   dt_free_align(lum);
@@ -277,13 +279,14 @@ static void _refine_with_detail_mask(struct dt_iop_module_t *self, struct dt_dev
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(mask, warp_mask, msize) \
-  schedule(simd:static) aligned(mask, warp_mask : 64) 
+  schedule(simd:static) aligned(mask, warp_mask : 64)
  #endif
   for(int idx =0; idx < msize; idx++)
   {
     mask[idx] = mask[idx] * warp_mask[idx];
   }
   dt_free_align(warp_mask);
+
   return;
 
   error:
@@ -433,7 +436,7 @@ void dt_develop_blend_process(struct dt_iop_module_t *self, struct dt_dev_pixelp
   // check if blend is disabled
   if(!(mask_mode & DEVELOP_MASK_ENABLED)) return;
 
-  const int ch = piece->colors;           // the number of channels in the buffer
+  const size_t ch = piece->colors;           // the number of channels in the buffer
   const int xoffs = roi_out->x - roi_in->x;
   const int yoffs = roi_out->y - roi_in->y;
   const int iwidth = roi_in->width;
@@ -590,8 +593,8 @@ void dt_develop_blend_process(struct dt_iop_module_t *self, struct dt_dev_pixelp
         const float guide_weight = cst == iop_cs_rgb ? 100.0f : 1.0f;
         float *restrict guide = (float *restrict)ivoid;
         if(!rois_equal)
-          guide = _develop_blend_process_copy_region(guide, iwidth * ch, xoffs * ch, yoffs * ch,
-                                                     owidth * ch, oheight * ch);
+          guide = _develop_blend_process_copy_region(guide, ch * iwidth, ch * xoffs, ch * yoffs,
+                                                     ch * owidth, ch * oheight);
         if(guide)
           _develop_blend_process_feather(guide, mask, owidth, oheight, ch, guide_weight,
                                          d->feathering_radius, roi_out->scale / piece->iscale);
@@ -672,9 +675,10 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
                                 const struct dt_iop_roi_t *roi_out, const float level, const int devid)
 {
   if(level == 0.0f) return;
+  const gboolean info = ((darktable.unmuted & DT_DEBUG_MASKS) && (piece->pipe->type == DT_DEV_PIXELPIPE_FULL));
 
   const int detail = (level > 0.0f);
-  const float threshold = _detail_mask_threshold(level, detail);  
+  const float threshold = _detail_mask_threshold(level, detail);
   float *lum = NULL;
   cl_mem tmp = NULL;
   cl_mem blur = NULL;
@@ -685,16 +689,17 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
 
   const int iwidth  = p->rawdetail_mask_roi.width;
   const int iheight = p->rawdetail_mask_roi.height;
-  const int owidth  = roi_in->width;
-  const int oheight = roi_in->height;
+  const int owidth  = roi_out->width;
+  const int oheight = roi_out->height;
+  if(info) fprintf(stderr, "[_refine_with_detail_mask_cl] in module %s %ix%i --> %ix%i\n", self->op, iwidth, iheight, owidth, oheight);
 
-  lum = dt_alloc_align_float(iwidth * iheight);
+  lum = dt_alloc_align_float((size_t)iwidth * iheight);
   if(lum == NULL) goto error;
   tmp = dt_opencl_alloc_device(devid, iwidth, iheight, sizeof(float));
   if(tmp == NULL) goto error;
-  out = dt_opencl_alloc_device_buffer(devid, iwidth * iheight * sizeof(float));
+  out = dt_opencl_alloc_device_buffer(devid, sizeof(float) * iwidth * iheight);
   if(out == NULL) goto error;
-  blur = dt_opencl_alloc_device_buffer(devid, iwidth * iheight * sizeof(float));
+  blur = dt_opencl_alloc_device_buffer(devid, sizeof(float) * iwidth * iheight);
   if(blur == NULL) goto error;
 
   {
@@ -711,7 +716,7 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
     dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), &iheight);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) goto error;
-  }  
+  }
 
   {
     size_t sizes[3] = { ROUNDUPWD(iwidth), ROUNDUPHT(iheight), 1 };
@@ -724,34 +729,11 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
     dt_opencl_set_kernel_arg(devid, kernel, 5, sizeof(int), &detail);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) goto error;
-  }  
+  }
 
   {
-    // For a blurring sigma of 2.0f a 13x13 kernel would be optimally required but the 9x9 is by far good enough here 
-    float kernel[9][9];
-    const float temp = -8.0f; // -2.0f * 2.0f * 2.0f; for a sigma of 2
-    float sum = 0.0f;
-    for(int i = -4; i <= 4; i++)
-    {
-      for(int j = -4; j <= 4; j++)
-      {
-        kernel[i + 4][j + 4] = expf( ((i*i) + (j*j)) / temp);
-        sum += kernel[i + 4][j + 4];
-      }
-    }
-    for(int i = 0; i < 9; i++)
-    {
-#if defined(__GNUC__)
-  #pragma GCC ivdep
-#endif
-      for(int j = 0; j < 9; j++)
-        kernel[i][j] /= sum;
-    }
-
-    float blurmat[13] = { kernel[4][4], kernel[3][4], kernel[3][3],               // 00: c00 c10 c11
-                          kernel[2][4], kernel[2][3], kernel[2][2],               // 03: c20 c21 c22
-                          kernel[1][4], kernel[1][3], kernel[1][2], kernel[1][1], // 06: c30 c31 c32 c33
-                          kernel[0][4], kernel[0][3], kernel[0][2]};              // 10: c40 c41 c42
+    float blurmat[13];
+    dt_masks_blur_9x9_coeff(blurmat, 2.0f);
     cl_mem dev_blurmat = NULL;
     dev_blurmat = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * 13, blurmat);
     if(dev_blurmat != NULL)
@@ -772,7 +754,6 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
       dt_opencl_release_mem_object(dev_blurmat);
       goto error;
     }
-
   }
 
   {
@@ -784,7 +765,7 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
     dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), &iheight);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) goto error;
-  }  
+  }
 
   {
     const int err = dt_opencl_read_host_from_device(devid, lum, tmp, iwidth, iheight, sizeof(float));
@@ -806,7 +787,7 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(mask, warp_mask, msize) \
-  schedule(simd:static) aligned(mask, warp_mask : 64) 
+  schedule(simd:static) aligned(mask, warp_mask : 64)
  #endif
   for(int idx = 0; idx < msize; idx++)
   {
@@ -814,7 +795,7 @@ static void _refine_with_detail_mask_cl(struct dt_iop_module_t *self, struct dt_
   }
   dt_free_align(warp_mask);
   return;
-  
+
   error:
   dt_control_log(_("detail mask CL blending problem"));
   dt_free_align(lum);

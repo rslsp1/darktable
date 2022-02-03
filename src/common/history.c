@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2010-2021 darktable developers.
+    Copyright (C) 2010-2022 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -629,7 +629,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
     }
 
     if(!skip_modules)
-      skip_modules = dt_util_dstrcat(skip_modules, "'@'");
+      skip_modules = g_strdup("'@'");
 
     gchar *query = g_strdup_printf
       ("INSERT INTO main.history "
@@ -807,6 +807,11 @@ int dt_history_copy_and_paste_on_image(const int32_t imgid, const int32_t dest_i
   return ret_val;
 }
 
+char *dt_history_item_as_string(const char *name, gboolean enabled)
+{
+  return g_strconcat(enabled ? "●" : "○", "  ", name, NULL);
+}
+
 GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
 {
   GList *result = NULL;
@@ -821,47 +826,35 @@ GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
                               "               WHERE hst2.imgid=?1"
                               "                 AND hst2.operation=main.history.operation"
                               "               GROUP BY multi_priority)"
+                              "   AND enabled in (1, ?2)"
                               " ORDER BY num DESC",
                               -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, enabled ? 1 : 0);
+
   while(sqlite3_step(stmt) == SQLITE_ROW)
   {
     if(strcmp((const char*)sqlite3_column_text(stmt, 1), "mask_manager") == 0) continue;
 
-    const int is_active = sqlite3_column_int(stmt, 2);
+    char name[512] = { 0 };
+    dt_history_item_t *item = g_malloc(sizeof(dt_history_item_t));
+    const char *op = (char *)sqlite3_column_text(stmt, 1);
+    item->num = sqlite3_column_int(stmt, 0);
+    item->enabled = sqlite3_column_int(stmt, 2);
 
-    if(enabled == FALSE || is_active)
-    {
-      char name[512] = { 0 };
-      dt_history_item_t *item = g_malloc(sizeof(dt_history_item_t));
-      item->num = sqlite3_column_int(stmt, 0);
-      char *mname = g_strdup((gchar *)sqlite3_column_text(stmt, 3));
-      if(enabled)
-      {
-        if(strcmp(mname, "0") == 0)
-          g_snprintf(name, sizeof(name), "%s",
-                     dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)));
-        else
-          g_snprintf(name, sizeof(name), "%s %s",
-                     dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)),
-                     (char *)sqlite3_column_text(stmt, 3));
-      }
-      else
-      {
-        if(strcmp(mname, "0") == 0)
-          g_snprintf(name, sizeof(name), "%s (%s)",
-                     dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)),
-                     (is_active != 0) ? _("on") : _("off"));
-        g_snprintf(name, sizeof(name), "%s %s (%s)",
-                   dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)),
-                   (char *)sqlite3_column_text(stmt, 3), (is_active != 0) ? _("on") : _("off"));
-      }
-      item->name = g_strdup(name);
-      item->op = g_strdup((gchar *)sqlite3_column_text(stmt, 1));
-      result = g_list_prepend(result, item);
+    char *mname = g_strdup((gchar *)sqlite3_column_text(stmt, 3));
 
-      g_free(mname);
-    }
+    if(strcmp(mname, "0") == 0)
+      g_snprintf(name, sizeof(name), "%s", dt_iop_get_localized_name(op));
+    else
+      g_snprintf(name, sizeof(name), "%s %s",
+                 dt_iop_get_localized_name(op),
+                 (char *)sqlite3_column_text(stmt, 3));
+    item->name = g_strdup(name);
+    item->op = g_strdup(op);
+    result = g_list_prepend(result, item);
+
+    g_free(mname);
   }
   sqlite3_finalize(stmt);
   return g_list_reverse(result);   // list was built in reverse order, so un-reverse it
@@ -870,24 +863,31 @@ GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
 char *dt_history_get_items_as_string(const int32_t imgid)
 {
   GList *items = NULL;
-  const char *onoff[2] = { _("off"), _("on") };
   sqlite3_stmt *stmt;
   DT_DEBUG_SQLITE3_PREPARE_V2(
       dt_database_get(darktable.db),
-      "SELECT operation, enabled, multi_name FROM main.history WHERE imgid=?1 ORDER BY num DESC", -1, &stmt, NULL);
+      "SELECT operation, enabled, multi_name"
+      " FROM main.history"
+      " WHERE imgid=?1 ORDER BY num DESC", -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
 
   // collect all the entries in the history from the db
   while(sqlite3_step(stmt) == SQLITE_ROW)
   {
-    char *name = NULL, *multi_name = NULL;
+    char *multi_name = NULL;
     const char *mn = (char *)sqlite3_column_text(stmt, 2);
+
     if(mn && *mn && g_strcmp0(mn, " ") != 0 && g_strcmp0(mn, "0") != 0)
       multi_name = g_strconcat(" ", sqlite3_column_text(stmt, 2), NULL);
-    name = g_strconcat(dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 0)),
-                       multi_name ? multi_name : "", " (",
-                       (sqlite3_column_int(stmt, 1) == 0) ? onoff[0] : onoff[1], ")", NULL);
+
+    char *iname = dt_history_item_as_string
+      (dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 0)),
+       sqlite3_column_int(stmt, 1));
+
+    char *name = g_strconcat(iname, multi_name ? multi_name : "", NULL);
     items = g_list_prepend(items, name);
+
+    g_free(iname);
     g_free(multi_name);
   }
   sqlite3_finalize(stmt);
@@ -1219,20 +1219,36 @@ int dt_history_compress_on_list(const GList *imgs)
   return uncompressed;
 }
 
-gboolean dt_history_check_module_exists(int32_t imgid, const char *operation)
+gboolean dt_history_check_module_exists(int32_t imgid, const char *operation, gboolean enabled)
 {
   gboolean result = FALSE;
   sqlite3_stmt *stmt;
 
   DT_DEBUG_SQLITE3_PREPARE_V2(
     dt_database_get(darktable.db),
-    "SELECT imgid FROM main.history WHERE imgid= ?1 AND operation = ?2", -1, &stmt, NULL);
+    "SELECT imgid"
+    " FROM main.history"
+    " WHERE imgid= ?1 AND operation = ?2 AND enabled in (1, ?3)",
+    -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 2, operation, -1, SQLITE_TRANSIENT);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 3, enabled);
   if (sqlite3_step(stmt) == SQLITE_ROW) result = TRUE;
   sqlite3_finalize(stmt);
 
   return result;
+}
+
+gboolean dt_history_check_module_exists_list(GList *hist, const char *operation, gboolean enabled)
+{
+  for(GList *h = hist; h; h = g_list_next(h))
+  {
+    const dt_history_item_t *item = (dt_history_item_t *)(h->data);
+
+    if(!g_strcmp0(item->op, operation) && (item->enabled || !enabled))
+      return TRUE;
+  }
+  return FALSE;
 }
 
 GList *dt_history_duplicate(GList *hist)
@@ -1401,7 +1417,7 @@ void dt_history_hash_write_from_history(const int32_t imgid, const dt_history_ha
     char *conflict = NULL;
     if(type & DT_HISTORY_HASH_BASIC)
     {
-      fields = dt_util_dstrcat(fields, "%s,", "basic_hash");
+      fields = g_strdup_printf("%s,", "basic_hash");
       values = g_strdup("?2,");
       conflict = g_strdup("basic_hash=?2,");
     }
@@ -1426,11 +1442,11 @@ void dt_history_hash_write_from_history(const int32_t imgid, const dt_history_ha
     {
       sqlite3_stmt *stmt;
 #ifdef HAVE_SQLITE_324_OR_NEWER
-      char *query = dt_util_dstrcat(NULL, "INSERT INTO main.history_hash"
-                                          " (imgid, %s) VALUES (?1, %s)"
-                                          " ON CONFLICT (imgid)"
-                                          " DO UPDATE SET %s",
-                                          fields, values, conflict);
+      char *query = g_strdup_printf("INSERT INTO main.history_hash"
+                                    " (imgid, %s) VALUES (?1, %s)"
+                                    " ON CONFLICT (imgid)"
+                                    " DO UPDATE SET %s",
+                                    fields, values, conflict);
 #else
       char *query = NULL;
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
@@ -1441,17 +1457,17 @@ void dt_history_hash_write_from_history(const int32_t imgid, const dt_history_ha
       if(sqlite3_step(stmt) == SQLITE_ROW)
       {
         sqlite3_finalize(stmt);
-        query = dt_util_dstrcat(NULL, "UPDATE main.history_hash"
-                                      " SET %s"
-                                      " WHERE imgid = ?1",
-                                      conflict);
+        query = g_strdup_printf("UPDATE main.history_hash"
+                                " SET %s"
+                                " WHERE imgid = ?1",
+                                conflict);
       }
       else
       {
         sqlite3_finalize(stmt);
-        query = dt_util_dstrcat(NULL, "INSERT INTO main.history_hash"
-                                      " (imgid, %s) VALUES (?1, %s)",
-                                      fields, values);
+        query = g_strdup_printf("INSERT INTO main.history_hash"
+                                " (imgid, %s) VALUES (?1, %s)",
+                                fields, values);
       }
 #endif
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), query, -1, &stmt, NULL);
@@ -1568,8 +1584,7 @@ dt_history_hash_t dt_history_hash_get_status(const int32_t imgid)
   dt_history_hash_t status = 0;
   if(imgid == -1) return status;
   sqlite3_stmt *stmt;
-  char *query = dt_util_dstrcat(NULL,
-                                "SELECT CASE"
+  char *query = g_strdup_printf("SELECT CASE"
                                 "  WHEN basic_hash == current_hash THEN %d"
                                 "  WHEN auto_hash == current_hash THEN %d"
                                 "  WHEN (basic_hash IS NULL OR current_hash != basic_hash) AND"
@@ -1652,6 +1667,18 @@ gboolean dt_history_paste_on_list(const GList *list, gboolean undo)
                                        darktable.view_manager->copy_paste.full_copy);
   }
   if(undo) dt_undo_end_group(darktable.undo);
+
+  // In darkroom and if there is a copy of the iop-order we need to rebuild the pipe
+  // to take into account the possible new order of modules.
+
+  const dt_view_t *cv = dt_view_manager_get_current_view(darktable.view_manager);
+
+  if(cv->view(cv) == DT_VIEW_DARKROOM
+     && darktable.view_manager->copy_paste.copy_iop_order)
+  {
+    dt_dev_pixelpipe_rebuild(darktable.develop);
+  }
+
   return TRUE;
 }
 
@@ -1693,6 +1720,18 @@ gboolean dt_history_paste_parts_on_list(const GList *list, gboolean undo)
   if(undo) dt_undo_end_group(darktable.undo);
 
   g_list_free(l_copy);
+
+  // In darkroom and if there is a copy of the iop-order we need to rebuild the pipe
+  // to take into account the possible new order of modules.
+
+  const dt_view_t *cv = dt_view_manager_get_current_view(darktable.view_manager);
+
+  if(cv->view(cv) == DT_VIEW_DARKROOM
+     && darktable.view_manager->copy_paste.copy_iop_order)
+  {
+    dt_dev_pixelpipe_rebuild(darktable.develop);
+  }
+
   return TRUE;
 }
 

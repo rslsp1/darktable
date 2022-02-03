@@ -49,22 +49,17 @@ typedef struct dt_lib_t
     struct
     {
       struct dt_lib_module_t *module;
-      float *picked_color_rgb_mean;
-      float *picked_color_rgb_min;
-      float *picked_color_rgb_max;
-      float *picked_color_lab_mean;
-      float *picked_color_lab_min;
-      float *picked_color_lab_max;
+      struct dt_colorpicker_sample_t *primary_sample;
+      struct dt_iop_color_picker_t *picker_proxy;
       GSList *live_samples;
       struct dt_colorpicker_sample_t *selected_sample;
-      int size;
-      int display_samples;
-      int restrict_histogram;
+      gboolean display_samples;
+      gboolean restrict_histogram;
+      int statistic;
       void (*update_panel)(struct dt_lib_module_t *self);
       void (*update_samples)(struct dt_lib_module_t *self);
-      void (*set_sample_area)(struct dt_lib_module_t *self, float size);
-      void (*set_sample_box_area)(struct dt_lib_module_t *self, const float *const size);
-      void (*set_sample_point)(struct dt_lib_module_t *self, float x, float y);
+      void (*set_sample_box_area)(struct dt_lib_module_t *self, const dt_boundingbox_t size);
+      void (*set_sample_point)(struct dt_lib_module_t *self, const float pos[2]);
     } colorpicker;
 
     /** Histogram processing hooks */
@@ -83,6 +78,8 @@ typedef struct dt_lib_t
 
 typedef struct dt_lib_module_t
 {
+  dt_action_t actions; // !!! NEEDS to be FIRST (to be able to cast convert)
+
 #define INCLUDE_API_FROM_MODULE_H
 #include "libs/lib_api.h"
 
@@ -101,7 +98,7 @@ typedef struct dt_lib_module_t
   /** ID of timer for delayed callback */
   guint timeout_handle;
 
-  GSList *accel_closures;
+  GtkWidget *arrow;
   GtkWidget *reset_button;
   GtkWidget *presets_button;
 } dt_lib_module_t;
@@ -111,13 +108,12 @@ void dt_lib_cleanup(dt_lib_t *lib);
 
 /** creates a label widget for the expander, with callback to enable/disable this module. */
 GtkWidget *dt_lib_gui_get_expander(dt_lib_module_t *module);
-/** set a expand/collaps plugin expander */
+/** set an expand/collapse plugin expander */
 void dt_lib_gui_set_expanded(dt_lib_module_t *module, gboolean expanded);
 /** get the expanded state of a plugin */
 gboolean dt_lib_gui_get_expanded(dt_lib_module_t *module);
 
-/** connects the reset and presets shortcuts to a lib */
-void dt_lib_connect_common_accels(dt_lib_module_t *module);
+extern const struct dt_action_def_t dt_action_def_lib;
 
 /** return the plugin with the given name */
 dt_lib_module_t *dt_lib_get_module(const char *name);
@@ -144,13 +140,13 @@ void dt_lib_queue_postponed_update(dt_lib_module_t *mod, void (*update_fn)(dt_li
 void dt_lib_cancel_postponed_update(dt_lib_module_t *mod);
 
 // apply a preset to the given module
-gboolean dt_lib_presets_apply(const gchar *preset, gchar *module_name, int module_version);
+gboolean dt_lib_presets_apply(const gchar *preset, const gchar *module_name, int module_version);
 // duplicate a preset
-gchar *dt_lib_presets_duplicate(const gchar *preset, gchar *module_name, int module_version);
+gchar *dt_lib_presets_duplicate(const gchar *preset, const gchar *module_name, int module_version);
 // remove a preset
-void dt_lib_presets_remove(const gchar *preset, gchar *module_name, int module_version);
+void dt_lib_presets_remove(const gchar *preset, const gchar *module_name, int module_version);
 // update a preset
-void dt_lib_presets_update(const gchar *preset, gchar *module_name, int module_version, const gchar *newname,
+void dt_lib_presets_update(const gchar *preset, const gchar *module_name, int module_version, const gchar *newname,
                            const gchar *desc, const void *params, const int32_t params_size);
 // know if the module can autoapply presets
 gboolean dt_lib_presets_can_autoapply(dt_lib_module_t *mod);
@@ -159,13 +155,11 @@ gboolean dt_lib_presets_can_autoapply(dt_lib_module_t *mod);
  * Proxy functions
  */
 
-/** set the colorpicker area selection tool and size, size 0.0 - 1.0 */
-void dt_lib_colorpicker_set_area(dt_lib_t *lib, float size);
 /** set the colorpicker area selection tool and size, box[k] 0.0 - 1.0 */
-void dt_lib_colorpicker_set_box_area(dt_lib_t *lib, const float *const box);
+void dt_lib_colorpicker_set_box_area(dt_lib_t *lib, const dt_boundingbox_t box);
 
 /** set the colorpicker point selection tool and position */
-void dt_lib_colorpicker_set_point(dt_lib_t *lib, float x, float y);
+void dt_lib_colorpicker_set_point(dt_lib_t *lib, const float pos[2]);
 
 /** sorter callback to add a lib in the list of libs after init */
 gint dt_lib_sort_plugins(gconstpointer a, gconstpointer b);

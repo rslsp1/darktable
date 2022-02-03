@@ -106,8 +106,8 @@ void checker_set_color(box_t *box, dt_colorspaces_color_profile_type_t color_spa
   box->color[1] = c1;
   box->color[2] = c2;
 
-  float DT_ALIGNED_PIXEL Lab[4] = { c0, c1, c2 };
-  float DT_ALIGNED_PIXEL XYZ[4] = { c0 * 0.01, c1 * 0.01, c2 * 0.01 };
+  dt_aligned_pixel_t Lab = { c0, c1, c2 };
+  dt_aligned_pixel_t XYZ = { c0 * 0.01, c1 * 0.01, c2 * 0.01 };
 
   switch(color_space)
   {
@@ -327,6 +327,7 @@ chart_t *parse_cht(const char *filename)
               }
 
               if(!first_label) first_label = label;
+              g_free(last_label);
               last_label = label;
 
               // store it
@@ -369,6 +370,7 @@ chart_t *parse_cht(const char *filename)
           if(kl == 'X' || kl == 'Y')
             g_hash_table_insert(result->patch_sets, g_strdup_printf("%s .. %s", first_label, last_label), labels);
 
+          g_free(last_label);
           free(y_label);
           free(x_label);
         }

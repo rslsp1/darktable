@@ -47,7 +47,6 @@ typedef enum dt_metadata_pref_cols_t
 typedef struct dt_lib_metadata_t
 {
   GtkTextView *textview[DT_METADATA_NUMBER];
-  gulong lost_focus_handler[DT_METADATA_NUMBER];
   GtkWidget *swindow[DT_METADATA_NUMBER];
   GList *metadata_list[DT_METADATA_NUMBER];
   char *setting_name[DT_METADATA_NUMBER];
@@ -127,7 +126,7 @@ static void _update(dt_lib_module_t *self)
   dt_lib_cancel_postponed_update(self);
   dt_lib_metadata_t *d = (dt_lib_metadata_t *)self->data;
 
-  const GList *imgs = dt_view_get_images_to_act_on(TRUE, FALSE, FALSE);
+  GList *imgs = dt_act_on_get_images(FALSE, FALSE, FALSE);
 
   // first we want to make sure the list of images to act on has changed
   // this is not the case if mouse hover change but still stay in selection for ex.
@@ -147,14 +146,18 @@ static void _update(dt_lib_module_t *self)
       l = g_list_next(l);
       ll = g_list_next(ll);
     }
-    if(!changed) return;
+    if(!changed)
+    {
+      g_list_free(imgs);
+      return;
+    }
   }
   g_list_free(d->last_act_on);
-  d->last_act_on = g_list_copy((GList *)imgs);
+  d->last_act_on = imgs;
 
   GList *metadata[DT_METADATA_NUMBER];
   uint32_t metadata_count[DT_METADATA_NUMBER];
-  uint32_t imgs_count = 0;
+
   for(unsigned int i = 0; i < DT_METADATA_NUMBER; i++)
   {
     metadata[i] = NULL;
@@ -163,14 +166,13 @@ static void _update(dt_lib_module_t *self)
 
   // using dt_metadata_get() is not possible here. we want to do all this in a single pass, everything else
   // takes ages.
-  gchar *images = dt_view_get_images_to_act_on_query(TRUE);
-  imgs_count = g_list_length((GList *)imgs);
+  gchar *images = dt_act_on_get_query(FALSE);
+  const uint32_t imgs_count = g_list_length((GList *)imgs);
 
   if(images)
   {
     sqlite3_stmt *stmt;
-    char *query = NULL;
-    query = dt_util_dstrcat(query,
+    gchar *query = g_strdup_printf(
                             "SELECT key, value, COUNT(id) AS ct FROM main.meta_data"
                             " WHERE id IN (%s)"
                             " GROUP BY key, value ORDER BY value",
@@ -237,7 +239,7 @@ static void _write_metadata(dt_lib_module_t *self)
       _append_kv(&key_value, dt_metadata_get_key(keyid), metadata[i]);
   }
 
-  const GList *imgs = dt_view_get_images_to_act_on(FALSE, TRUE, FALSE);
+  GList *imgs = dt_act_on_get_images(FALSE, TRUE, FALSE);
   dt_metadata_set_list(imgs, key_value, TRUE);
 
   for(unsigned int i = 0; i < DT_METADATA_NUMBER; i++)
@@ -250,6 +252,7 @@ static void _write_metadata(dt_lib_module_t *self)
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_METADATA_CHANGED, DT_METADATA_SIGNAL_NEW_VALUE);
 
   dt_image_synch_xmps(imgs);
+  g_list_free(imgs);
   _update(self);
 }
 
@@ -332,10 +335,11 @@ int position()
 static void _update_layout(dt_lib_module_t *self)
 {
   dt_lib_metadata_t *d = (dt_lib_metadata_t *)self->data;
+
   for(unsigned int i = 0; i < DT_METADATA_NUMBER; i++)
   {
     const gchar *name = dt_metadata_get_name_by_display_order(i);
-    char *setting = dt_util_dstrcat(NULL, "plugins/lighttable/metadata/%s_flag", name);
+    gchar *setting = g_strdup_printf("plugins/lighttable/metadata/%s_flag", name);
     const gboolean hidden = dt_conf_get_int(setting) & DT_METADATA_FLAG_HIDDEN;
     g_free(setting);
     const int type = dt_metadata_get_type_by_display_order(i);
@@ -353,10 +357,11 @@ void gui_reset(dt_lib_module_t *self)
 {
   dt_lib_metadata_t *d = (dt_lib_metadata_t *)self->data;
   d->editing = FALSE;
-  const GList *imgs = dt_view_get_images_to_act_on(FALSE, TRUE, FALSE);
+  GList *imgs = dt_act_on_get_images(FALSE, TRUE, FALSE);
   dt_metadata_clear(imgs, TRUE);
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_MOUSE_OVER_IMAGE_CHANGE);
   dt_image_synch_xmps(imgs);
+  g_list_free(imgs);
   _update(self);
 }
 
@@ -466,7 +471,7 @@ void _menuitem_preferences(GtkMenuItem *menuitem, dt_lib_module_t *self)
     if(type != DT_METADATA_TYPE_INTERNAL)
     {
       name[i] = (gchar *)dt_metadata_get_name_by_display_order(i);
-      char *setting = dt_util_dstrcat(NULL, "plugins/lighttable/metadata/%s_flag", name[i]);
+      gchar *setting = g_strdup_printf("plugins/lighttable/metadata/%s_flag", name[i]);
       const uint32_t flag = dt_conf_get_int(setting);
       g_free(setting);
       visible[i] = !(flag & DT_METADATA_FLAG_HIDDEN);
@@ -551,7 +556,7 @@ void _menuitem_preferences(GtkMenuItem *menuitem, dt_lib_module_t *self)
                          -1);
       if(i < DT_METADATA_NUMBER)
       {
-        char *setting = dt_util_dstrcat(NULL, "plugins/lighttable/metadata/%s_flag", name[i]);
+        gchar *setting = g_strdup_printf("plugins/lighttable/metadata/%s_flag", name[i]);
         uint32_t flag = dt_conf_get_int(setting);
         if(new_visible !=  visible[i])
         {
@@ -635,7 +640,7 @@ static gboolean _click_on_textview(GtkWidget *textview, GdkEventButton *event, d
   gtk_widget_get_allocation(GTK_WIDGET(d->swindow[i]), &metadata_allocation);
   // popup height
   const gchar *name = dt_metadata_get_name_by_display_order(i);
-  gchar *setting = dt_util_dstrcat(NULL, "plugins/lighttable/metadata/%s_text_height", name);
+  gchar *setting = g_strdup_printf("plugins/lighttable/metadata/%s_text_height", name);
   const gint height = dt_conf_get_int(setting) * 5;
   g_free(setting);
 
@@ -740,7 +745,7 @@ void gui_init(dt_lib_module_t *self)
                                 "italic", "style", PANGO_STYLE_ITALIC, NULL);
 
     const char *name = (char *)dt_metadata_get_name_by_display_order(i);
-    d->setting_name[i] = dt_util_dstrcat(NULL, "plugins/lighttable/metadata/%s_text_height", name);
+    d->setting_name[i] = g_strdup_printf("plugins/lighttable/metadata/%s_text_height", name);
 
     GtkWidget *swindow = dt_ui_scroll_wrap(GTK_WIDGET(textview), 100, d->setting_name[i]);
 
@@ -749,22 +754,25 @@ void gui_init(dt_lib_module_t *self)
     d->swindow[i] = swindow;
     gtk_widget_set_size_request(d->swindow[i], -1, DT_PIXEL_APPLY_DPI(30));
 
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(textview), GTK_WRAP_WORD);
+    //workaround for a Gtk issue where the textview does not wrap correctly
+    //while resizing the panel or typing into the widget
+    //reported upstream to https://gitlab.gnome.org/GNOME/gtk/-/issues/4042
+    //see also discussions on https://github.com/darktable-org/darktable/pull/10584
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(swindow), GTK_POLICY_NEVER, GTK_POLICY_ALWAYS);
+
+
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(textview), GTK_WRAP_WORD_CHAR);
     gtk_text_view_set_accepts_tab(GTK_TEXT_VIEW(textview), FALSE);
-    dt_gui_key_accel_block_on_focus_connect(textview);
+    gtk_widget_add_events(textview, GDK_FOCUS_CHANGE_MASK);
     g_signal_connect(textview, "key-press-event", G_CALLBACK(_key_pressed), self);
     g_signal_connect(G_OBJECT(textview), "button-press-event", G_CALLBACK(_click_on_textview), self);
     g_signal_connect(textview, "grab-focus", G_CALLBACK(_got_focus), self);
-    d->lost_focus_handler[i] = g_signal_connect(textview, "focus-out-event", G_CALLBACK(_lost_focus), self);
+    g_signal_connect(textview, "focus-out-event", G_CALLBACK(_lost_focus), self);
     g_signal_connect(GTK_EVENT_BOX(labelev), "button-press-event",
                      G_CALLBACK(_metadata_reset), textview);
     d->textview[i] = GTK_TEXT_VIEW(textview);
     gtk_widget_set_hexpand(textview, TRUE);
     gtk_widget_set_vexpand(textview, TRUE);
-
-    // doesn't work. Workaround => gui_post_expose
-    // gtk_widget_set_no_show_all(GTK_WIDGET(label), TRUE);
-    // gtk_widget_set_no_show_all(GTK_WIDGET(textview), TRUE);
   }
 
   d->init_layout = FALSE;
@@ -801,9 +809,8 @@ void gui_cleanup(dt_lib_module_t *self)
 
   for(unsigned int i = 0; i < DT_METADATA_NUMBER; i++)
   {
+    g_signal_handlers_block_by_func(d->textview[i], _lost_focus, self);
     g_free(d->setting_name[i]);
-    g_signal_handler_disconnect(G_OBJECT(d->textview[i]), d->lost_focus_handler[i]);
-    dt_gui_key_accel_block_on_focus_disconnect(GTK_WIDGET(d->textview[i]));
   }
   free(self->data);
   self->data = NULL;
@@ -833,7 +840,7 @@ void init_presets(dt_lib_module_t *self)
                     _("Creative Commons Attribution-NonCommercial-ShareAlike (CC BY-NC-SA)"));
   add_rights_preset(self, _("CC BY-NC-ND"),
                     _("Creative Commons Attribution-NonCommercial-NoDerivs (CC BY-NC-ND)"));
-  add_rights_preset(self, _("all rights reserved"), _("all rights reserved."));
+  add_rights_preset(self, _("all rights reserved"), _("all rights reserved"));
 }
 
 void *legacy_params(dt_lib_module_t *self, const void *const old_params, const size_t old_params_size,
@@ -841,7 +848,7 @@ void *legacy_params(dt_lib_module_t *self, const void *const old_params, const s
 {
   if(old_version == 1)
   {
-    size_t new_params_size = old_params_size + 1;
+    const size_t new_params_size = old_params_size + 1;
     char *new_params = calloc(sizeof(char), new_params_size);
 
     const char *buf = (const char *)old_params;
@@ -879,7 +886,7 @@ void *legacy_params(dt_lib_module_t *self, const void *const old_params, const s
   }
   else if(old_version == 2)
   {
-    size_t new_params_size = old_params_size + 1;
+    const size_t new_params_size = old_params_size + 1;
     char *new_params = calloc(sizeof(char), new_params_size);
 
     memcpy(new_params, old_params, old_params_size);
@@ -931,6 +938,7 @@ void *get_params(dt_lib_module_t *self, int *size)
 int set_params(dt_lib_module_t *self, const void *params, int size)
 {
   if(!params) return 1;
+  dt_lib_metadata_t *d = (dt_lib_metadata_t *)self->data;
 
   char *buf = (char *)params;
   char *metadata[DT_METADATA_NUMBER];
@@ -955,13 +963,17 @@ int set_params(dt_lib_module_t *self, const void *params, int size)
     if(metadata[i][0] != '\0') _append_kv(&key_value, dt_metadata_get_key(i), metadata[i]);
   }
 
-  const GList *imgs = dt_view_get_images_to_act_on(FALSE, TRUE, FALSE);
+  GList *imgs = dt_act_on_get_images(FALSE, TRUE, FALSE);
   dt_metadata_set_list(imgs, key_value, TRUE);
 
   g_list_free(key_value);
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_MOUSE_OVER_IMAGE_CHANGE);
   dt_image_synch_xmps(imgs);
+  g_list_free(imgs);
+  // force the ui refresh to update the info from preset
+  g_list_free(d->last_act_on);
+  d->last_act_on = NULL;
   _update(self);
   return 0;
 }

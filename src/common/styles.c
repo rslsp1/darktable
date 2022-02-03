@@ -98,8 +98,9 @@ void dt_style_item_free(gpointer data)
 static gboolean _apply_style_shortcut_callback(GtkAccelGroup *accel_group, GObject *acceleratable,
                                                guint keyval, GdkModifierType modifier, gpointer data)
 {
-  const GList *imgs = dt_view_get_images_to_act_on(TRUE, TRUE, FALSE);
+  GList *imgs = dt_act_on_get_images(TRUE, TRUE, FALSE);
   dt_styles_apply_to_list(data, imgs, FALSE);
+  g_list_free(imgs);
   return TRUE;
 }
 
@@ -112,7 +113,9 @@ static int32_t dt_styles_get_id_by_name(const char *name);
 
 gboolean dt_styles_exists(const char *name)
 {
-  return (dt_styles_get_id_by_name(name)) != 0 ? TRUE : FALSE;
+  if(name)
+    return (dt_styles_get_id_by_name(name)) != 0 ? TRUE : FALSE;
+  return FALSE;
 }
 
 static void _dt_style_cleanup_multi_instance(int id)
@@ -260,6 +263,7 @@ static void _dt_style_update_from_image(int id, int imgid, GList *filter, GList 
     char tmp[500];
     char *fields[] = { "op_params",       "module",         "enabled",    "blendop_params",
                        "blendop_version", "multi_priority", "multi_name", 0 };
+
     do
     {
       query[0] = '\0';
@@ -272,27 +276,28 @@ static void _dt_style_update_from_image(int id, int imgid, GList *filter, GList 
         for(int k = 0; fields[k]; k++)
         {
           if(k != 0) g_strlcat(query, ",", sizeof(query));
-          snprintf(tmp, sizeof(tmp), "%s=(SELECT %s FROM main.history WHERE imgid=%d AND num=%d)", fields[k],
-                   fields[k], imgid, GPOINTER_TO_INT(list->data));
+          snprintf(tmp, sizeof(tmp),
+                   "%s=(SELECT %s FROM main.history WHERE imgid=%d AND num=%d)",
+                   fields[k], fields[k], imgid, GPOINTER_TO_INT(upd->data));
           g_strlcat(query, tmp, sizeof(query));
         }
         snprintf(tmp, sizeof(tmp), " WHERE styleid=%d AND data.style_items.num=%d", id,
-                 GPOINTER_TO_INT(upd->data));
+                 GPOINTER_TO_INT(list->data));
         g_strlcat(query, tmp, sizeof(query));
       }
       // update only, so we want to insert the new style item
       else if(GPOINTER_TO_INT(upd->data) != -1)
         snprintf(query, sizeof(query),
                  "INSERT INTO data.style_items "
-                 "  (styleid,num,module,operation,op_params,enabled,blendop_params,"
-                 "   blendop_version,multi_priority,multi_name)"
+                 "  (styleid, num, module, operation, op_params, enabled, blendop_params,"
+                 "   blendop_version, multi_priority, multi_name)"
                  " SELECT %d,"
                  "    (SELECT num+1 "
                  "     FROM data.style_items"
                  "     WHERE styleid=%d"
                  "     ORDER BY num DESC LIMIT 1), "
-                 "   module,operation,op_params,enabled,blendop_params,blendop_version,"
-                 "   multi_priority,multi_name"
+                 "   module, operation, op_params, enabled, blendop_params, blendop_version,"
+                 "   multi_priority, multi_name"
                  " FROM main.history"
                  " WHERE imgid=%d AND num=%d",
                  id, id, imgid, GPOINTER_TO_INT(upd->data));
@@ -399,22 +404,19 @@ void dt_styles_update(const char *name, const char *newname, const char *newdesc
 
   dt_styles_save_to_file(newname, stylesdir, TRUE);
 
-  /* delete old accelerator and create a new one */
-  // TODO: should better use dt_accel_rename_global() to keep the old accel_key untouched, but it seems to be
-  // buggy
   if(g_strcmp0(name, newname))
   {
-    char tmp_accel[1024];
-    snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), name);
-    dt_accel_deregister_global(tmp_accel);
+    gchar *old_name = g_strdup_printf(C_("accel", "styles/apply %s"), name);
+    gchar *new_name = g_strdup_printf(C_("accel", "apply %s"), newname); // don't include full path
 
-    gchar *tmp_name = g_strdup(newname); // freed by _destroy_style_shortcut_callback
-    snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), newname);
-    dt_accel_register_global(tmp_accel, 0, 0);
-    GClosure *closure;
-    closure = g_cclosure_new(G_CALLBACK(_apply_style_shortcut_callback), tmp_name,
-                             _destroy_style_shortcut_callback);
-    dt_accel_connect_global(tmp_accel, closure);
+    // change closure first, with full old path
+    GClosure *closure = g_cclosure_new(G_CALLBACK(_apply_style_shortcut_callback), g_strdup(newname),
+                                       _destroy_style_shortcut_callback);
+    dt_accel_connect_global(old_name, closure);
+
+    dt_accel_rename_global(old_name, new_name);
+    g_free(old_name);
+    g_free(new_name);
   }
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_STYLE_CHANGED);
@@ -637,8 +639,14 @@ void dt_styles_apply_to_list(const char *name, const GList *list, gboolean dupli
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_TAG_CHANGED);
 
-  if(!selected) dt_control_log(_("no image selected!"));
-  dt_control_log(_("style %s successfully applied!"), name);
+  if(!selected)
+  {
+    dt_control_log(_("no image selected!"));
+  }
+  else
+  {
+    dt_control_log(_("style %s successfully applied!"), name);
+  }
 }
 
 void dt_multiple_styles_apply_to_list(GList *styles, const GList *list, gboolean duplicate)
@@ -991,7 +999,7 @@ void dt_styles_delete_by_name_adv(const char *name, const gboolean raise)
 
     char tmp_accel[1024];
     snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), name);
-    dt_accel_deregister_global(tmp_accel);
+    dt_accel_rename_global(tmp_accel, NULL);
 
     if(raise)
       DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_STYLE_CHANGED);
@@ -1027,8 +1035,9 @@ GList *dt_styles_get_item_list(const char *name, gboolean params, int imgid)
           "SELECT num, multi_priority, module, operation, enabled,"
           "       (SELECT MAX(num)"
           "        FROM main.history"
-          "        WHERE imgid=?2 AND operation=data.style_items.operation"
-          "        GROUP BY multi_priority),"
+          "        WHERE imgid=?2 "
+          "          AND operation=data.style_items.operation"
+          "          AND multi_priority=data.style_items.multi_priority),"
           "       0, multi_name, blendop_version"
           " FROM data.style_items"
           " WHERE styleid=?1"
@@ -1069,16 +1078,18 @@ GList *dt_styles_get_item_list(const char *name, gboolean params, int imgid)
 
       item->enabled = sqlite3_column_int(stmt, 4);
 
+      const char *multi_name = (const char *)sqlite3_column_text(stmt, 7);
+      const gboolean has_multi_name = multi_name && *multi_name && (strcmp(multi_name, "0") != 0);
+
       if(params)
       {
         // when we get the parameters we do not want to get the operation localized as this
         // is used to compare against the internal module name.
-        const char *multi_name = (const char *)sqlite3_column_text(stmt, 7);
 
-        if(!(multi_name && *multi_name))
-          g_snprintf(iname, sizeof(iname), "%s", sqlite3_column_text(stmt, 3));
-        else
+        if(has_multi_name)
           g_snprintf(iname, sizeof(iname), "%s %s", sqlite3_column_text(stmt, 3), multi_name);
+        else
+          g_snprintf(iname, sizeof(iname), "%s", sqlite3_column_text(stmt, 3));
 
         const unsigned char *op_blob = sqlite3_column_blob(stmt, 5);
         const int32_t op_len = sqlite3_column_bytes(stmt, 5);
@@ -1097,19 +1108,12 @@ GList *dt_styles_get_item_list(const char *name, gboolean params, int imgid)
       }
       else
       {
-        const char *multi_name = (const char *)sqlite3_column_text(stmt, 7);
-        gboolean has_multi_name = FALSE;
-
-        if(multi_name && *multi_name && strcmp(multi_name, "0") != 0) has_multi_name = TRUE;
+        const gchar *itname = dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 3));
 
         if(has_multi_name)
-          g_snprintf(iname, sizeof(iname), "%s %s (%s)",
-                     dt_iop_get_localized_name((gchar *)sqlite3_column_text(stmt, 3)), multi_name,
-                     (sqlite3_column_int(stmt, 4) != 0) ? _("on") : _("off"));
+          g_snprintf(iname, sizeof(iname), "%s %s", itname, multi_name);
         else
-          g_snprintf(iname, sizeof(iname), "%s (%s)",
-                     dt_iop_get_localized_name((gchar *)sqlite3_column_text(stmt, 3)),
-                     (sqlite3_column_int(stmt, 4) != 0) ? _("on") : _("off"));
+          g_snprintf(iname, sizeof(iname), "%s", itname);
 
         item->params = NULL;
         item->blendop_params = NULL;
@@ -1554,7 +1558,7 @@ static int32_t dt_styles_get_id_by_name(const char *name)
   return id;
 }
 
-void init_styles_key_accels()
+void dt_init_styles_key_accels()
 {
   GList *result = dt_styles_get_list("");
   if(result)
@@ -1562,15 +1566,17 @@ void init_styles_key_accels()
     for(GList *res_iter = result; res_iter; res_iter = g_list_next(res_iter))
     {
       dt_style_t *style = (dt_style_t *)res_iter->data;
+      gchar* tmp_name = g_strdelimit(g_strdup(style->name), "/", '-');
       char tmp_accel[1024];
-      snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), style->name);
+      snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), tmp_name);
+      g_free(tmp_name);
       dt_accel_register_global(tmp_accel, 0, 0);
     }
     g_list_free_full(result, dt_style_free);
   }
 }
 
-void connect_styles_key_accels()
+void dt_connect_styles_key_accels()
 {
   GList *result = dt_styles_get_list("");
   if(result)
@@ -1581,8 +1587,10 @@ void connect_styles_key_accels()
       dt_style_t *style = (dt_style_t *)res_iter->data;
       closure = g_cclosure_new(G_CALLBACK(_apply_style_shortcut_callback), g_strdup(style->name),
                                _destroy_style_shortcut_callback);
+      gchar* tmp_name = g_strdelimit(g_strdup(style->name), "/", '-');
       char tmp_accel[1024];
-      snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), style->name);
+      snprintf(tmp_accel, sizeof(tmp_accel), C_("accel", "styles/apply %s"), tmp_name);
+      g_free(tmp_name);
       dt_accel_connect_global(tmp_accel, closure);
     }
     g_list_free_full(result, dt_style_free);

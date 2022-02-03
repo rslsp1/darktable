@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include "../../src/common/dttypes.h"
 
 typedef float elem_type;
 #define ELEM_SWAP(a,b) { elem_type t=(a);(a)=(b);(b)=t; }
@@ -12,15 +13,15 @@ Function :   kth_smallest()
 In       :   array of elements, # of elements in the array, rank k
 Out      :   one element
 Job      :   find the kth smallest element in the array
-Notice   :   use the median() macro defined below to get the median. 
+Notice   :   use the median() macro defined below to get the median.
 
 Reference:
 
-Author: Wirth, Niklaus 
-Title: Algorithms + data structures = programs 
-Publisher: Englewood Cliffs: Prentice-Hall, 1976 
-Physical description: 366 p. 
-Series: Prentice-Hall Series in Automatic Computation 
+Author: Wirth, Niklaus
+Title: Algorithms + data structures = programs
+Publisher: Englewood Cliffs: Prentice-Hall, 1976
+Physical description: 366 p.
+Series: Prentice-Hall Series in Automatic Computation
 
 ---------------------------------------------------------------------------*/
 
@@ -164,7 +165,8 @@ int main(int argc, char *arg[])
   // correction requested?
   if(argc >= 9 && !strcmp(arg[2], "-c"))
   {
-    const float a[3] = {atof(arg[3]), atof(arg[4]), atof(arg[5])}, b[3] = {atof(arg[6]), atof(arg[7]), atof(arg[8])};
+    const dt_aligned_pixel_t a = { atof(arg[3]), atof(arg[4]), atof(arg[5]) },
+                             b = { atof(arg[6]), atof(arg[7]), atof(arg[8]) };
     // const float m[3] = {1, 1, 1};
     //   2.0f*sqrt(a[0]*1.0f+b[0])/a[0],
     //   2.0f*sqrt(a[1]*1.0f+b[1])/a[1],
@@ -343,10 +345,10 @@ int main(int argc, char *arg[])
       for(int k=0;k<3;k++) std[i][k] *= max;
   // output variance per brightness level:
   // fprintf(stdout, "# bin std_r std_g std_b hist_r hist_g hist_b cdf_r cdf_g cdf_b\n");
-  float sum[3] = {0.0f};
+  dt_aligned_pixel_t sum = {0.0f};
   for(int i=0;i<N;i++)
     for(int k=0;k<3;k++) sum[k] += std[i][k];
-  float cdf[3] = {0.0f};
+  dt_aligned_pixel_t cdf = {0.0f};
   for(int i=0;i<N;i++)
   {
     fprintf(stdout, "%f %f %f %f %f %f %f %f %f %f\n", i/(float)N, std[i][0], std[i][1], std[i][2],

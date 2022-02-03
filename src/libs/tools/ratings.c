@@ -23,6 +23,7 @@
 #include "dtgtk/button.h"
 #include "gui/draw.h"
 #include "gui/gtk.h"
+#include "gui/accelerators.h"
 #include "libs/lib.h"
 #include "libs/lib_api.h"
 
@@ -88,9 +89,10 @@ void gui_init(dt_lib_module_t *self)
 
   GtkWidget *drawing = gtk_drawing_area_new();
 
-  gtk_widget_set_events(drawing, GDK_EXPOSURE_MASK | GDK_POINTER_MOTION_MASK
-                            | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
-                            | GDK_STRUCTURE_MASK);
+  gtk_widget_set_events(drawing, GDK_EXPOSURE_MASK     | GDK_POINTER_MOTION_MASK
+                               | GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK
+                               | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
+                               | GDK_STRUCTURE_MASK);
 
   /* connect callbacks */
   gtk_widget_set_app_paintable(drawing, TRUE);
@@ -105,6 +107,7 @@ void gui_init(dt_lib_module_t *self)
 
   /* set size of navigation draw area */
   gtk_widget_set_name(self->widget, "lib-rating-stars");
+  dt_action_define(&darktable.control->actions_thumb, NULL, "rating", drawing, &dt_action_def_rating);
 }
 
 void gui_cleanup(dt_lib_module_t *self)
@@ -153,7 +156,7 @@ static gboolean _lib_ratings_draw_callback(GtkWidget *widget, cairo_t *crf, gpoi
       cairo_set_source_rgba(cr, fg_color.red, fg_color.green, fg_color.blue, fg_color.alpha * 0.5);
       cairo_stroke(cr);
       gdk_cairo_set_source_rgba(cr, &fg_color);
-      if((k + 1) > d->current) d->current = (k + 1);
+      if((k + 1) > d->current) d->current = darktable.control->element = (k + 1);
     }
     else
       cairo_stroke(cr);
@@ -188,10 +191,9 @@ static gboolean _lib_ratings_button_press_callback(GtkWidget *widget, GdkEventBu
   dt_lib_ratings_t *d = (dt_lib_ratings_t *)self->data;
   if(d->current > 0)
   {
-    const GList *imgs = dt_view_get_images_to_act_on(FALSE, TRUE, FALSE);
+    GList *imgs = dt_act_on_get_images(FALSE, TRUE, FALSE);
     dt_ratings_apply_on_list(imgs, d->current, TRUE);
-    dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, DT_COLLECTION_PROP_RATING,
-                               g_list_copy((GList *)imgs));
+    dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, DT_COLLECTION_PROP_RATING, imgs);
 
     dt_control_queue_redraw_center();
   }

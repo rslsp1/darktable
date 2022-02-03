@@ -36,23 +36,17 @@ then
   exit
 fi
 
-MAKE=$(exiv2 -Pkt "$DNG" 2>/dev/null | grep 'Exif.Image.Make ' | sed 's#Exif.Image.Make *##g')
-MODEL=$(exiv2 -Pkt "$DNG" 2>/dev/null | grep 'Exif.Image.Model ' | sed 's#Exif.Image.Model *##g')
-UNIQUE_CAMERA_MODEL=$(exiv2 -Pkt "$DNG" 2>/dev/null | grep 'Exif.Image.UniqueCameraModel ' | sed 's#Exif.Image.UniqueCameraModel *##g')
+MAKE=$(get_exif_key "$DNG" Exif.Image.Make)
+MODEL=$(get_exif_key "$DNG" Exif.Image.Model)
+UNIQUE_CAMERA_MODEL=$(get_exif_key "$DNG" Exif.Image.UniqueCameraModel)
 
 ISO=$(get_image_iso "$DNG")
 
 # This doesn't work with two name makes but there aren't any active ones
-ID_MAKE=${MAKE:0:1}$(echo "${MAKE:1}" | cut -d " " -f 1 | tr "[:upper:]" "[:lower:]")
+ID_MAKE=$(get_image_camera_maker "$DNG")
+ID_MODEL=$(get_image_camera_model "$DNG")
 
-ID_MODEL=$MODEL
-first_maker=$(echo "$MAKE" | cut -d " " -f 1)
-first_model=$(echo "$MODEL" | cut -d " " -f 1)
-if [ "$first_maker" = "$first_model" ]; then
-  ID_MODEL=$(echo "$MODEL" | cut -d " " -f 2-)
-fi
-
-MANGLED_MAKE_MODEL=$(echo "$MAKE" "$MODEL" | sed 's# CORPORATION##gi' | sed 's#Canon Canon#Canon#g' | sed 's#NIKON NIKON#NIKON#g' | sed 's#PENTAX PENTAX#PENTAX#g' | sed 's#OLYMPUS IMAGING CORP.#OLYMPUS#g' | sed 's#OLYMPUS OPTICAL CO.,LTD#OLYMPUS#g' | sed 's# EASTMAN KODAK COMPANY#KODAK#g')
+MANGLED_MAKE_MODEL=$(echo "$ID_MAKE" "$ID_MODEL")
 
 SOFTWARE=$(exiv2 -Pkt "$DNG" 2>/dev/null | grep 'Exif.Image.Software ' | awk '{print $2 " " $3 " " $4 " " $5 " " $6}')
 
@@ -161,6 +155,13 @@ fi
 
 echo -e "\t\t<Crop x=\"0\" y=\"0\" width=\"0\" height=\"0\"/>"
 echo -e "\t\t<Sensor black=\"$BLACK\" white=\"$WHITE\"$SENSOR_ISO/>"
+echo -e "\t\t<ColorMatrices>"
+echo -e "\t\t\t<ColorMatrix planes=\"3\">"
+echo -e "\t\t\t\t<ColorMatrixRow plane=\"0\">$MATRIX_XR $MATRIX_XG $MATRIX_XB</ColorMatrixRow>"
+echo -e "\t\t\t\t<ColorMatrixRow plane=\"1\">$MATRIX_YR $MATRIX_YG $MATRIX_YB</ColorMatrixRow>"
+echo -e "\t\t\t\t<ColorMatrixRow plane=\"2\">$MATRIX_ZR $MATRIX_ZG $MATRIX_ZB</ColorMatrixRow>"
+echo -e "\t\t\t</ColorMatrix>"
+echo -e "\t\t</ColorMatrices>"
 echo -e "\t</Camera>"
 echo ""
 

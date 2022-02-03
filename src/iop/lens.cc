@@ -102,7 +102,6 @@ typedef struct dt_iop_lensfun_gui_data_t
 {
   const lfCamera *camera;
   GtkWidget *lens_param_box;
-  GtkWidget *detection_warning;
   GtkWidget *cbe[3];
   GtkWidget *camera_model;
   GtkMenu *camera_menu;
@@ -114,6 +113,7 @@ typedef struct dt_iop_lensfun_gui_data_t
   GList *modifiers;
   GtkLabel *message;
   int corrections_done;
+  gboolean trouble;
 } dt_iop_lensfun_gui_data_t;
 
 typedef struct dt_iop_lensfun_global_data_t
@@ -175,7 +175,7 @@ int operation_tags()
 
 int flags()
 {
-  return IOP_FLAGS_ALLOW_TILING | IOP_FLAGS_TILING_FULL_ROI | IOP_FLAGS_UNSAFE_COPY;
+  return IOP_FLAGS_ALLOW_TILING | IOP_FLAGS_TILING_FULL_ROI | IOP_FLAGS_UNSAFE_COPY | IOP_FLAGS_GUIDES_WIDGET;
 }
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
@@ -1659,11 +1659,7 @@ static void camera_menusearch_clicked(GtkWidget *button, gpointer user_data)
   if(!camlist) return;
   camera_menu_fill(self, camlist);
 
-#if GTK_CHECK_VERSION(3, 22, 0)
-  gtk_menu_popup_at_pointer(GTK_MENU(g->camera_menu), NULL);
-#else
-  gtk_menu_popup(GTK_MENU(g->camera_menu), NULL, NULL, NULL, NULL, 0, gtk_get_current_event_time());
-#endif
+  dt_gui_menu_popup(GTK_MENU(g->camera_menu), button, GDK_GRAVITY_SOUTH, GDK_GRAVITY_NORTH);
 }
 
 static void camera_autosearch_clicked(GtkWidget *button, gpointer user_data)
@@ -1697,11 +1693,7 @@ static void camera_autosearch_clicked(GtkWidget *button, gpointer user_data)
     lf_free(camlist);
   }
 
-#if GTK_CHECK_VERSION(3, 22, 0)
-  gtk_menu_popup_at_pointer(GTK_MENU(g->camera_menu), NULL);
-#else
-  gtk_menu_popup(GTK_MENU(g->camera_menu), NULL, NULL, NULL, NULL, 0, gtk_get_current_event_time());
-#endif
+  dt_gui_menu_popup(GTK_MENU(g->camera_menu), button, GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_EAST);
 }
 
 /* -- end camera -- */
@@ -1739,6 +1731,28 @@ static void delete_children(GtkWidget *widget, gpointer data)
   gtk_widget_destroy(widget);
 }
 
+static void _display_lens_error(struct dt_iop_module_t *self)
+{
+  dt_iop_lensfun_gui_data_t *g = (dt_iop_lensfun_gui_data_t *)self->gui_data;
+
+  if(g->trouble && self->enabled)
+  {
+    dt_iop_set_module_trouble_message(self, _("camera/lens not found"),
+                                      _("please select your lens manually\n"
+                                        "you might also want to check if your lensfun database is up-to-date\n"
+                                        "by running lensfun_update_data"),
+                                      "camera/lens not found");
+
+  }
+  else
+  {
+    dt_iop_set_module_trouble_message(self, NULL, NULL, NULL);
+  }
+
+  gtk_widget_queue_draw(self->widget);
+
+}
+
 static void lens_set(dt_iop_module_t *self, const lfLens *lens)
 {
   dt_iop_lensfun_gui_data_t *g = (dt_iop_lensfun_gui_data_t *)self->gui_data;
@@ -1765,23 +1779,12 @@ static void lens_set(dt_iop_module_t *self, const lfLens *lens)
     gtk_widget_set_sensitive(GTK_WIDGET(g->tca_b), FALSE);
     gtk_widget_set_sensitive(GTK_WIDGET(g->message), FALSE);
 
-    gtk_container_foreach(GTK_CONTAINER(g->detection_warning), delete_children, NULL);
-
-    GtkWidget *label;
-
-    label = gtk_label_new(_("camera/lens not found - please select manually"));
-    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_MIDDLE);
-
-    gtk_widget_set_tooltip_text(label, _("try to locate your camera/lens in the above two menus"));
-
-    gtk_box_pack_start(GTK_BOX(g->detection_warning), label, FALSE, FALSE, 0);
-
-    gtk_widget_hide(g->lens_param_box);
-    gtk_widget_show_all(g->detection_warning);
+    g->trouble = TRUE;
     return;
   }
   else
   {
+    // no longer in trouble
     gtk_widget_set_sensitive(GTK_WIDGET(g->modflags), TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(g->target_geom), TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(g->scale), TRUE);
@@ -1789,6 +1792,8 @@ static void lens_set(dt_iop_module_t *self, const lfLens *lens)
     gtk_widget_set_sensitive(GTK_WIDGET(g->tca_r), TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(g->tca_b), TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(g->message), TRUE);
+
+    g->trouble = FALSE;
   }
 
   maker = lf_mlstr_get(lens->Maker);
@@ -1938,7 +1943,6 @@ static void lens_set(dt_iop_module_t *self, const lfLens *lens)
   dt_bauhaus_combobox_set_editable(w, 1);
   g->cbe[2] = w;
 
-  gtk_widget_hide(g->detection_warning);
   gtk_widget_show_all(g->lens_param_box);
 }
 
@@ -2023,11 +2027,7 @@ static void lens_menusearch_clicked(GtkWidget *button, gpointer user_data)
   lens_menu_fill(self, lenslist);
   lf_free(lenslist);
 
-#if GTK_CHECK_VERSION(3, 22, 0)
-  gtk_menu_popup_at_pointer(GTK_MENU(g->lens_menu), NULL);
-#else
-  gtk_menu_popup(GTK_MENU(g->lens_menu), NULL, NULL, NULL, NULL, 0, gtk_get_current_event_time());
-#endif
+  dt_gui_menu_popup(GTK_MENU(g->lens_menu), button, GDK_GRAVITY_SOUTH, GDK_GRAVITY_NORTH);
 }
 
 static void lens_autosearch_clicked(GtkWidget *button, gpointer user_data)
@@ -2051,11 +2051,7 @@ static void lens_autosearch_clicked(GtkWidget *button, gpointer user_data)
   lens_menu_fill(self, lenslist);
   lf_free(lenslist);
 
-#if GTK_CHECK_VERSION(3, 22, 0)
-  gtk_menu_popup_at_pointer(GTK_MENU(g->lens_menu), NULL);
-#else
-  gtk_menu_popup(GTK_MENU(g->lens_menu), NULL, NULL, NULL, NULL, 0, gtk_get_current_event_time());
-#endif
+  dt_gui_menu_popup(GTK_MENU(g->lens_menu), button, GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_EAST);
 }
 
 /* -- end lens -- */
@@ -2109,6 +2105,8 @@ void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
     // user did modify something with some widget
     p->modified = 1;
   }
+
+  _display_lens_error(self);
 }
 
 
@@ -2212,9 +2210,18 @@ static void corrections_done(gpointer instance, gpointer user_data)
   --darktable.gui->reset;
 }
 
+static void _develop_ui_pipe_finished_callback(gpointer instance, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  _display_lens_error(self);
+}
+
 void gui_init(struct dt_iop_module_t *self)
 {
   dt_iop_lensfun_gui_data_t *g = IOP_GUI_ALLOC(lensfun);
+
+  DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_DEVELOP_UI_PIPE_FINISHED,
+                            G_CALLBACK(_develop_ui_pipe_finished_callback), self);
 
   g->camera = NULL;
   g->camera_menu = NULL;
@@ -2283,7 +2290,6 @@ void gui_init(struct dt_iop_module_t *self)
   g->camera_model = dt_iop_button_new(self, N_("camera model"),
                                       G_CALLBACK(camera_menusearch_clicked), FALSE, 0, (GdkModifierType)0,
                                       NULL, 0, hbox);
-  dt_gui_key_accel_block_on_focus_connect(GTK_WIDGET(g->camera_model));
   g->find_camera_button = dt_iop_button_new(self, N_("find camera"),
                                             G_CALLBACK(camera_autosearch_clicked), FALSE, 0, (GdkModifierType)0,
                                             dtgtk_cairo_paint_solid_triangle, CPF_DIRECTION_DOWN, NULL);
@@ -2295,7 +2301,6 @@ void gui_init(struct dt_iop_module_t *self)
   g->lens_model = dt_iop_button_new(self, N_("lens model"),
                                     G_CALLBACK(lens_menusearch_clicked), FALSE, 0, (GdkModifierType)0,
                                     NULL, 0, hbox);
-  dt_gui_key_accel_block_on_focus_connect(GTK_WIDGET(g->lens_model));
   g->find_lens_button = dt_iop_button_new(self, N_("find lens"),
                                           G_CALLBACK(lens_autosearch_clicked), FALSE, 0, (GdkModifierType)0,
                                           dtgtk_cairo_paint_solid_triangle, CPF_DIRECTION_DOWN, NULL);
@@ -2305,10 +2310,6 @@ void gui_init(struct dt_iop_module_t *self)
   // lens properties
   g->lens_param_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_pack_start(GTK_BOX(self->widget), g->lens_param_box, TRUE, TRUE, 0);
-
-  // camera/lens not detected warning box
-  g->detection_warning = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), g->detection_warning, TRUE, TRUE, 0);
 
 #if 0
   // if unambiguous info is there, use it.
@@ -2402,6 +2403,12 @@ void gui_init(struct dt_iop_module_t *self)
                             G_CALLBACK(corrections_done), self);
 }
 
+void gui_focus(struct dt_iop_module_t *self, gboolean in)
+{
+  _display_lens_error(self);
+}
+
+
 void gui_update(struct dt_iop_module_t *self)
 {
   // let gui elements reflect params
@@ -2484,9 +2491,9 @@ void gui_cleanup(struct dt_iop_module_t *self)
   dt_iop_lensfun_gui_data_t *g = (dt_iop_lensfun_gui_data_t *)self->gui_data;
 
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(corrections_done), self);
+  DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals,
+                                     G_CALLBACK(_develop_ui_pipe_finished_callback), self);
 
-  dt_gui_key_accel_block_on_focus_disconnect(GTK_WIDGET(g->lens_model));
-  dt_gui_key_accel_block_on_focus_disconnect(GTK_WIDGET(g->camera_model));
   while(g->modifiers)
   {
     g_free(g->modifiers->data);

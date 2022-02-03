@@ -70,20 +70,24 @@ int position()
 
 void init_key_accels(dt_lib_module_t *self)
 {
+  dt_accel_register_lib(self, NC_("accel", "create"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "remove"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "export"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "import"), 0, 0);
   dt_accel_register_lib(self, NC_("accel", "edit"), 0, 0);
+  dt_accel_register_lib(self, NC_("accel", "apply"), 0, 0);
 }
 
 void connect_key_accels(dt_lib_module_t *self)
 {
   dt_lib_styles_t *d = (dt_lib_styles_t *)self->data;
 
+  dt_accel_connect_button_lib(self, "create", d->create_button);
   dt_accel_connect_button_lib(self, "remove", d->delete_button);
   dt_accel_connect_button_lib(self, "export", d->export_button);
   dt_accel_connect_button_lib(self, "import", d->import_button);
   if(d->edit_button) dt_accel_connect_button_lib(self, "edit", d->edit_button);
+  dt_accel_connect_button_lib(self, "apply", d->apply_button);
 }
 
 typedef enum _styles_columns_t
@@ -119,12 +123,13 @@ static gboolean _get_node_for_name(GtkTreeModel *model, gboolean root, GtkTreeIt
   }
 
   // here we have iter to be on the right level, let's check if we can find parent_name
-  gchar *name;
-
   do
   {
+    gchar *name;
     gtk_tree_model_get(model, iter, DT_STYLES_COL_NAME, &name, -1);
-    if(!g_strcmp0(name, parent_name))
+    const gboolean match = !g_strcmp0(name, parent_name);
+    g_free(name);
+    if(match)
     {
       return TRUE;
     }
@@ -217,8 +222,13 @@ static void _styles_row_activated_callback(GtkTreeView *view, GtkTreePath *path,
   gchar *name;
   gtk_tree_model_get(model, &iter, DT_STYLES_COL_FULLNAME, &name, -1);
 
-  const GList *list = dt_view_get_images_to_act_on(TRUE, TRUE, FALSE);
-  if(name) dt_styles_apply_to_list(name, list, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(d->duplicate)));
+  GList *list = dt_act_on_get_images(TRUE, TRUE, FALSE);
+  if(name)
+  {
+    dt_styles_apply_to_list(name, list, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(d->duplicate)));
+    g_free(name);
+  }
+  g_list_free(list);
 }
 
 // get list of style names from selection
@@ -253,19 +263,21 @@ static void apply_clicked(GtkWidget *w, gpointer user_data)
 
   if(style_names == NULL) return;
 
-  const GList *list = dt_view_get_images_to_act_on(TRUE, TRUE, FALSE);
+  GList *list = dt_act_on_get_images(TRUE, TRUE, FALSE);
 
   if(list) dt_multiple_styles_apply_to_list(style_names, list, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(d->duplicate)));
 
   g_list_free_full(style_names, g_free);
+  g_list_free(list);
 }
 
 static void create_clicked(GtkWidget *w, gpointer user_data)
 {
   dt_lib_styles_t *d = (dt_lib_styles_t *)user_data;
 
-  const GList *list = dt_view_get_images_to_act_on(TRUE, TRUE, FALSE);
+  GList *list = dt_act_on_get_images(TRUE, TRUE, FALSE);
   dt_styles_create_from_list(list);
+  g_list_free(list);
   _gui_styles_update_view(d);
 }
 
@@ -381,21 +393,14 @@ static void export_clicked(GtkWidget *w, gpointer user_data)
   gint overwrite = 0;
 
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-  GtkWidget *filechooser = gtk_file_chooser_dialog_new(
-      _("select directory"), GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, _("_cancel"),
-      GTK_RESPONSE_CANCEL, _("_save"), GTK_RESPONSE_ACCEPT, (char *)NULL);
-#ifdef GDK_WINDOWING_QUARTZ
-  dt_osx_disallow_fullscreen(filechooser);
-#endif
-  gchar *import_path = dt_conf_get_string("ui_last/export_path");
-  if(import_path != NULL)
-  {
-    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(filechooser), import_path);
-    g_free(import_path);
-  }
+  GtkFileChooserNative *filechooser = gtk_file_chooser_native_new(
+        _("select directory"), GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+        _("_save"), _("_cancel"));
+
+  dt_conf_get_folder_to_file_chooser("ui_last/export_path", GTK_FILE_CHOOSER(filechooser));
   gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(filechooser), FALSE);
 
-  if(gtk_dialog_run(GTK_DIALOG(filechooser)) == GTK_RESPONSE_ACCEPT)
+  if(gtk_native_dialog_run(GTK_NATIVE_DIALOG(filechooser)) == GTK_RESPONSE_ACCEPT)
   {
     char *filedir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(filechooser));
 
@@ -509,12 +514,10 @@ static void export_clicked(GtkWidget *w, gpointer user_data)
       }
       dt_control_log(_("style %s was successfully exported"), (char*)style->data);
     }
-    gchar *folder = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(filechooser));
-    dt_conf_set_string("ui_last/export_path", folder);
-    g_free(folder);
+    dt_conf_set_folder_from_file_chooser("ui_last/export_path", GTK_FILE_CHOOSER(filechooser));
     g_free(filedir);
   }
-  gtk_widget_destroy(filechooser);
+  g_object_unref(filechooser);
   g_list_free_full(style_names, g_free);
 }
 
@@ -525,19 +528,11 @@ static void import_clicked(GtkWidget *w, gpointer user_data)
   gint overwrite = 0;
 
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-  GtkWidget *filechooser = gtk_file_chooser_dialog_new(
-      _("select style"), GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_OPEN, _("_cancel"), GTK_RESPONSE_CANCEL,
-      _("_open"), GTK_RESPONSE_ACCEPT, (char *)NULL);
-#ifdef GDK_WINDOWING_QUARTZ
-  dt_osx_disallow_fullscreen(filechooser);
-#endif
-  gchar *import_path = dt_conf_get_string("ui_last/import_path");
-  if(import_path != NULL)
-  {
-    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(filechooser), import_path);
-    g_free(import_path);
-  }
+  GtkFileChooserNative *filechooser = gtk_file_chooser_native_new(
+        _("select style"), GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_OPEN,
+        _("_open"), _("_cancel"));
 
+  dt_conf_get_folder_to_file_chooser("ui_last/import_path", GTK_FILE_CHOOSER(filechooser));
   gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(filechooser), TRUE);
 
   GtkFileFilter *filter;
@@ -553,23 +548,25 @@ static void import_clicked(GtkWidget *w, gpointer user_data)
 
   gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(filechooser), filter);
 
-  if(gtk_dialog_run(GTK_DIALOG(filechooser)) == GTK_RESPONSE_ACCEPT)
+  if(gtk_native_dialog_run(GTK_NATIVE_DIALOG(filechooser)) == GTK_RESPONSE_ACCEPT)
   {
     GSList *filenames = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(filechooser));
 
     for(const GSList *filename = filenames; filename; filename = g_slist_next(filename))
     {
       /* extract name from xml file */
-      gchar *bname = "";
-      xmlDoc *document = xmlReadFile((char*)filename->data, NULL, 0);
+      gchar *bname = NULL;
+      xmlDoc *document = xmlReadFile((char*)filename->data, NULL, XML_PARSE_NOBLANKS);
       xmlNode *root = NULL;
       if(document != NULL)
         root = xmlDocGetRootElement(document);
 
-      if(document == NULL || root == NULL)
+      if(document == NULL || root == NULL || xmlStrcmp(root->name, BAD_CAST "darktable_style"))
       {
         dt_print(DT_DEBUG_CONTROL,
                  "[styles] file %s is not a style file\n", (char*)filename->data);
+        if(document)
+          xmlFreeDoc(document);
         continue;
       }
 
@@ -579,16 +576,23 @@ static void import_clicked(GtkWidget *w, gpointer user_data)
         {
           if(strcmp((char*)node->name, "name") == 0)
           {
-            //printf("%s\n", node->name);
-            //printf("%s\n", xmlNodeGetContent(node));
-            bname = (char*)xmlNodeGetContent(node);
+            bname = g_strdup((char*)xmlNodeGetContent(node));
             break;
           }
         }
       }
 
+      // xml doc is not necessary after this point
+      xmlFreeDoc(document);
+
+      if(!bname){
+        dt_print(DT_DEBUG_CONTROL,
+                 "[styles] file %s is malformed style file\n", (char*)filename->data);
+        continue;
+      }
+
       // check if style exists
-      if(dt_styles_exists(bname) != 0)
+      if(dt_styles_exists(bname))
       {
         /* do not run overwrite dialog */
         if(overwrite_check_button == 1)
@@ -693,16 +697,15 @@ static void import_clicked(GtkWidget *w, gpointer user_data)
       {
         dt_styles_import_from_file((char*)filename->data);
       }
+      g_free(bname);
     }
     g_slist_free_full(filenames, g_free);
 
     dt_lib_styles_t *d = (dt_lib_styles_t *)user_data;
     _gui_styles_update_view(d);
-    gchar *folder = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(filechooser));
-    dt_conf_set_string("ui_last/import_path", folder);
-    g_free(folder);
+    dt_conf_set_folder_from_file_chooser("ui_last/import_path", GTK_FILE_CHOOSER(filechooser));
   }
-  gtk_widget_destroy(filechooser);
+  g_object_unref(filechooser);
 }
 
 static gboolean entry_callback(GtkEntry *entry, gpointer user_data)
@@ -717,8 +720,9 @@ static gboolean entry_activated(GtkEntry *entry, gpointer user_data)
   const gchar *name = gtk_entry_get_text(d->entry);
   if(name)
   {
-    const GList *imgs = dt_view_get_images_to_act_on(TRUE, TRUE, FALSE);
+    GList *imgs = dt_act_on_get_images(TRUE, TRUE, FALSE);
     dt_styles_apply_to_list(name, imgs, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(d->duplicate)));
+    g_list_free(imgs);
   }
 
   return FALSE;
@@ -743,8 +747,7 @@ static void _update(dt_lib_module_t *self)
   dt_lib_cancel_postponed_update(self);
   dt_lib_styles_t *d = (dt_lib_styles_t *)self->data;
 
-  const GList *imgs = dt_view_get_images_to_act_on(TRUE, FALSE, FALSE);
-  const gboolean has_act_on = imgs != NULL;
+  const gboolean has_act_on = (dt_act_on_get_images_nb(TRUE, FALSE) > 0);
 
   GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(d->tree));
   const gint sel_styles_cnt = gtk_tree_selection_count_selected_rows(selection);
@@ -827,7 +830,6 @@ void gui_init(dt_lib_module_t *self)
   g_signal_connect(d->entry, "changed", G_CALLBACK(entry_callback), d);
   g_signal_connect(d->entry, "activate", G_CALLBACK(entry_activated), d);
 
-  dt_gui_key_accel_block_on_focus_connect(GTK_WIDGET(d->entry));
 
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->entry), TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(self->widget),
@@ -842,7 +844,7 @@ void gui_init(dt_lib_module_t *self)
                                dt_conf_get_bool("ui_last/styles_create_duplicate"));
   gtk_widget_set_tooltip_text(d->duplicate, _("creates a duplicate of the image before applying style"));
 
-  d->applymode = dt_bauhaus_combobox_new(NULL);
+  d->applymode = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->applymode), TRUE, FALSE, 0);
   dt_bauhaus_widget_set_label(d->applymode, NULL, N_("mode"));
   dt_bauhaus_combobox_add(d->applymode, _("append"));
@@ -914,14 +916,12 @@ void gui_init(dt_lib_module_t *self)
 void gui_cleanup(dt_lib_module_t *self)
 {
   dt_lib_cancel_postponed_update(self);
-  dt_lib_styles_t *d = (dt_lib_styles_t *)self->data;
-  DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_styles_changed_callback), self);
 
+  DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_styles_changed_callback), self);
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_image_selection_changed_callback), self);
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_mouse_over_image_callback), self);
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_collection_updated_callback), self);
 
-  dt_gui_key_accel_block_on_focus_disconnect(GTK_WIDGET(d->entry));
   free(self->data);
   self->data = NULL;
 }

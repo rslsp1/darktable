@@ -445,7 +445,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
     }
     else if(autoscale_ab == DT_S_SCALE_AUTOMATIC_XYZ)
     {
-      float DT_ALIGNED_PIXEL XYZ[4];
+      dt_aligned_pixel_t XYZ;
       dt_Lab_to_XYZ(in + k, XYZ);
       for(int c=0;c<3;c++)
         XYZ[c] = (XYZ[c] < xm_L) ? d->table[ch_L][CLAMP((int)(XYZ[c] * 0x10000ul), 0, 0xffff)]
@@ -454,7 +454,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
     }
     else if(autoscale_ab == DT_S_SCALE_AUTOMATIC_RGB)
     {
-      float DT_ALIGNED_PIXEL rgb[4] = {0, 0, 0};
+      dt_aligned_pixel_t rgb = {0, 0, 0};
       dt_Lab_to_prophotorgb(in + k, rgb);
       if(d->preserve_colors == DT_RGB_NORM_NONE)
       {
@@ -694,8 +694,8 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
     // derive curve for XYZ:
     for(int k=0;k<0x10000;k++)
     {
-      float DT_ALIGNED_PIXEL XYZ[4] = {k/(float)0x10000, k/(float)0x10000, k/(float)0x10000};
-      float DT_ALIGNED_PIXEL Lab[4] = {0.0};
+      dt_aligned_pixel_t XYZ = {k/(float)0x10000, k/(float)0x10000, k/(float)0x10000};
+      dt_aligned_pixel_t Lab = {0.0};
       dt_XYZ_to_Lab(XYZ, Lab);
       Lab[0] = d->table[ch_L][CLAMP((int)(Lab[0]/100.0f * 0x10000), 0, 0xffff)];
       dt_Lab_to_XYZ(Lab, XYZ);
@@ -707,8 +707,8 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
     // derive curve for rgb:
     for(int k=0;k<0x10000;k++)
     {
-      float DT_ALIGNED_PIXEL rgb[4] = {k/(float)0x10000, k/(float)0x10000, k/(float)0x10000};
-      float DT_ALIGNED_PIXEL Lab[4] = {0.0};
+      dt_aligned_pixel_t rgb = {k/(float)0x10000, k/(float)0x10000, k/(float)0x10000};
+      dt_aligned_pixel_t Lab = {0.0};
       dt_prophotorgb_to_Lab(rgb, Lab);
       Lab[0] = d->table[ch_L][CLAMP((int)(Lab[0]/100.0f * 0x10000), 0, 0xffff)];
       dt_Lab_to_prophotorgb(Lab, rgb);
@@ -1108,9 +1108,9 @@ static gboolean dt_iop_tonecurve_key_press(GtkWidget *widget, GdkEventKey *event
   int autoscale_ab = p->tonecurve_autoscale_ab;
 
   // if autoscale_ab is on: do not modify a and b curves
-  if((autoscale_ab != DT_S_SCALE_MANUAL) && ch != ch_L) return TRUE;
+  if((autoscale_ab != DT_S_SCALE_MANUAL) && ch != ch_L) return FALSE;
 
-  if(c->selected < 0) return TRUE;
+  if(c->selected < 0) return FALSE;
 
   int handled = 0;
   float dx = 0.0f, dy = 0.0f;
@@ -1135,7 +1135,7 @@ static gboolean dt_iop_tonecurve_key_press(GtkWidget *widget, GdkEventKey *event
     dx = -TONECURVE_DEFAULT_STEP;
   }
 
-  if(!handled) return TRUE;
+  if(!handled) return FALSE;
 
   return _move_point_internal(self, widget, dx, dy, event->state);
 }
@@ -1169,28 +1169,33 @@ void gui_init(struct dt_iop_module_t *self)
                                                  "then adjusted based on L curve data. auto XYZ is similar "
                                                  "but applies the saturation changes in XYZ space."));
   GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  c->channel_tabs = GTK_NOTEBOOK(gtk_notebook_new());
-  dt_ui_notebook_page(c->channel_tabs, _("L"), _("tonecurve for L channel"));
-  dt_ui_notebook_page(c->channel_tabs, _("a"), _("tonecurve for a channel"));
-  dt_ui_notebook_page(c->channel_tabs, _("b"), _("tonecurve for b channel"));
+
+  static dt_action_def_t notebook_def = { };
+  c->channel_tabs = dt_ui_notebook_new(&notebook_def);
+  dt_action_define_iop(self, NULL, N_("channel"), GTK_WIDGET(c->channel_tabs), &notebook_def);
+  dt_ui_notebook_page(c->channel_tabs, N_("L"), _("tonecurve for L channel"));
+  dt_ui_notebook_page(c->channel_tabs, N_("a"), _("tonecurve for a channel"));
+  dt_ui_notebook_page(c->channel_tabs, N_("b"), _("tonecurve for b channel"));
   g_signal_connect(G_OBJECT(c->channel_tabs), "switch_page", G_CALLBACK(tab_switch), self);
   gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(c->channel_tabs), TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(hbox), gtk_grid_new(), TRUE, TRUE, 0);
 
   c->colorpicker = dt_color_picker_new(self, DT_COLOR_PICKER_POINT_AREA, hbox);
-  gtk_widget_set_tooltip_text(c->colorpicker, _("pick GUI color from image\nctrl+click to select an area"));
+  gtk_widget_set_tooltip_text(c->colorpicker, _("pick GUI color from image\nctrl+click or right-click to select an area"));
 
   gtk_box_pack_start(GTK_BOX(self->widget), hbox, FALSE, FALSE, 0);
 
   c->area = GTK_DRAWING_AREA(dtgtk_drawing_area_new_with_aspect_ratio(1.0));
+  g_object_set_data(G_OBJECT(c->area), "iop-instance", self);
+  dt_action_define_iop(self, NULL, N_("curve"), GTK_WIDGET(c->area), NULL);
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(c->area), TRUE, TRUE, 0);
 
   // FIXME: that tooltip goes in the way of the numbers when you hover a node to get a reading
   //gtk_widget_set_tooltip_text(GTK_WIDGET(c->area), _("double click to reset curve"));
 
-  gtk_widget_add_events(GTK_WIDGET(c->area), GDK_POINTER_MOTION_MASK
-                                                 | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
-                                                 | GDK_LEAVE_NOTIFY_MASK | darktable.gui->scroll_mask);
+  gtk_widget_add_events(GTK_WIDGET(c->area), GDK_POINTER_MOTION_MASK | darktable.gui->scroll_mask
+                                           | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
+                                           | GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
   gtk_widget_set_can_focus(GTK_WIDGET(c->area), TRUE);
   g_signal_connect(G_OBJECT(c->area), "draw", G_CALLBACK(dt_iop_tonecurve_draw), self);
   g_signal_connect(G_OBJECT(c->area), "button-press-event", G_CALLBACK(dt_iop_tonecurve_button_press), self);
@@ -1399,7 +1404,7 @@ static gboolean dt_iop_tonecurve_draw(GtkWidget *widget, cairo_t *crf, gpointer 
   {
     float *raw_mean, *raw_min, *raw_max;
     float *raw_mean_output;
-    float picker_mean[3], picker_min[3], picker_max[3];
+    dt_aligned_pixel_t picker_mean, picker_min, picker_max;
     const gboolean is_linear = darktable.lib->proxy.histogram.is_linear;
 
     raw_mean = gd->picked_color;
@@ -1438,9 +1443,9 @@ static gboolean dt_iop_tonecurve_draw(GtkWidget *widget, cairo_t *crf, gpointer 
       {
         dt_colorpicker_sample_t *sample = samples->data;
 
-        picker_scale(sample->picked_color_lab_mean, picker_mean);
-        picker_scale(sample->picked_color_lab_min, picker_min);
-        picker_scale(sample->picked_color_lab_max, picker_max);
+        picker_scale(sample->lab[DT_LIB_COLORPICKER_STATISTIC_MEAN], picker_mean);
+        picker_scale(sample->lab[DT_LIB_COLORPICKER_STATISTIC_MIN], picker_min);
+        picker_scale(sample->lab[DT_LIB_COLORPICKER_STATISTIC_MAX], picker_max);
 
         // Convert abcissa to log coordinates if needed
         picker_min[ch] = to_log(picker_min[ch], c->loglogscale, ch, c->semilog, 0);

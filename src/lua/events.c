@@ -84,7 +84,7 @@ int dt_lua_event_trigger_wrapper(lua_State *L)
 
 /*
  *
- * dt_lua_event_list is a table (array) of tables, 
+ * dt_lua_event_list is a table (array) of tables,
  * 1 for each type of event (shortcut, exit, post-image-import, etc.)
  *
  * Each event table (structure) contains the following:
@@ -320,11 +320,11 @@ int dt_lua_event_multiinstance_register(lua_State *L)
     luaL_error(L, "index table and data table sizes differ.  %s events are corrupted.\n", luaL_checkstring(L, 4));
 
   // add the callback
-  luaL_ref(L, 1); // add the callback to the data table
+  lua_seti(L, 1, luaL_len(L, 1) + 1); // add the callback to the data table
   lua_pop(L, 1);  // remove the event name from the stack
-
   /// add the index
-  luaL_ref(L, 2); // add the index name to the index
+  lua_seti(L, 2, luaL_len(L, 2) + 1); // add the index name to the index
+
   lua_pop(L, 2);  // clear the stack
   return 0;
 }
@@ -433,7 +433,7 @@ static int lua_register_event(lua_State *L)
   const char *evt_name = luaL_checkstring(L, 2);
 
   const int nparams = lua_gettop(L);
- 
+
   // check the callback is a function
   luaL_checktype(L, 3, LUA_TFUNCTION);
 
@@ -507,7 +507,7 @@ static int lua_destroy_event(lua_State *L)
    // call the register function
   lua_call(L, nparams + 2, 0);
 
-  // check if there are any events left and set in use 
+  // check if there are any events left and set in use
   // if event type is shortcut, we have to count the tables
   // otherwise we can just take the size
 
@@ -628,7 +628,7 @@ static int destroy_shortcut_event(lua_State *L)
   int result = dt_lua_event_keyed_destroy(L); // will raise an error in case of duplicate key
 
   // remove the accelerator from the lua shortcuts
-  dt_accel_deregister_lua(tmp);
+  dt_accel_rename_lua(tmp, NULL);
 
   // free temporary buffer
   free(tmp);
@@ -659,6 +659,12 @@ int dt_lua_init_events(lua_State *L)
   lua_pushcfunction(L, dt_lua_event_multiinstance_destroy);
   lua_pushcfunction(L, dt_lua_event_multiinstance_trigger);
   dt_lua_event_add(L,"selection-changed");
+
+  lua_pushcfunction(L, dt_lua_event_multiinstance_register);
+  lua_pushcfunction(L, dt_lua_event_multiinstance_destroy);
+  lua_pushcfunction(L, dt_lua_event_multiinstance_trigger);
+  dt_lua_event_add(L, "darkroom-image-history-changed");
+
   return 0;
 }
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh

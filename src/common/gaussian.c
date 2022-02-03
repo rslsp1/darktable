@@ -85,14 +85,17 @@ size_t dt_gaussian_memory_use(const int width,    // width of input image
                               const int height,   // height of input image
                               const int channels) // channels per pixel
 {
-  size_t mem_use;
-#ifdef HAVE_OPENCL
-  mem_use = sizeof(float) * channels * (width + BLOCKSIZE) * (height + BLOCKSIZE) * 2;
-#else
-  mem_use = sizeof(float) * channels * width * height;
-#endif
-  return mem_use;
+  return sizeof(float) * channels * width * height;
 }
+
+#ifdef HAVE_OPENCL
+size_t dt_gaussian_memory_use_cl(const int width,    // width of input image
+                                 const int height,   // height of input image
+                                 const int channels) // channels per pixel
+{
+  return sizeof(float) * channels * (width + BLOCKSIZE) * (height + BLOCKSIZE) * 2;
+}
+#endif /* HAVE_OPENCL */
 
 size_t dt_gaussian_singlebuffer_size(const int width,    // width of input image
                                      const int height,   // height of input image
@@ -175,15 +178,9 @@ void dt_gaussian_blur(dt_gaussian_t *g, const float *const in, float *const out)
 #endif
   for(int i = 0; i < width; i++)
   {
-    float xp[4] = {0.0f};
-    float yb[4] = {0.0f};
-    float yp[4] = {0.0f};
-    float xc[4] = {0.0f};
-    float yc[4] = {0.0f};
-    float xn[4] = {0.0f};
-    float xa[4] = {0.0f};
-    float yn[4] = {0.0f};
-    float ya[4] = {0.0f};
+    dt_aligned_pixel_t xp = {0.0f};
+    dt_aligned_pixel_t yb = {0.0f};
+    dt_aligned_pixel_t yp = {0.0f};
 
     // forward filter
     for(int k = 0; k < ch; k++)
@@ -191,9 +188,14 @@ void dt_gaussian_blur(dt_gaussian_t *g, const float *const in, float *const out)
       xp[k] = CLAMPF(in[(size_t)i * ch + k], Labmin[k], Labmax[k]);
       yb[k] = xp[k] * coefp;
       yp[k] = yb[k];
-      xc[k] = yc[k] = xn[k] = xa[k] = yn[k] = ya[k] = 0.0f;
     }
 
+    dt_aligned_pixel_t xc = {0.0f};
+    dt_aligned_pixel_t yc = {0.0f};
+    dt_aligned_pixel_t xn = {0.0f};
+    dt_aligned_pixel_t xa = {0.0f};
+    dt_aligned_pixel_t yn = {0.0f};
+    dt_aligned_pixel_t ya = {0.0f};
     for(int j = 0; j < height; j++)
     {
       size_t offset = ((size_t)j * width + i) * ch;
@@ -249,15 +251,9 @@ void dt_gaussian_blur(dt_gaussian_t *g, const float *const in, float *const out)
 #endif
   for(int j = 0; j < height; j++)
   {
-    float xp[4] = {0.0f};
-    float yb[4] = {0.0f};
-    float yp[4] = {0.0f};
-    float xc[4] = {0.0f};
-    float yc[4] = {0.0f};
-    float xn[4] = {0.0f};
-    float xa[4] = {0.0f};
-    float yn[4] = {0.0f};
-    float ya[4] = {0.0f};
+    dt_aligned_pixel_t xp = {0.0f};
+    dt_aligned_pixel_t yb = {0.0f};
+    dt_aligned_pixel_t yp = {0.0f};
 
     // forward filter
     for(int k = 0; k < ch; k++)
@@ -265,8 +261,14 @@ void dt_gaussian_blur(dt_gaussian_t *g, const float *const in, float *const out)
       xp[k] = CLAMPF(temp[(size_t)j * width * ch + k], Labmin[k], Labmax[k]);
       yb[k] = xp[k] * coefp;
       yp[k] = yb[k];
-      xc[k] = yc[k] = xn[k] = xa[k] = yn[k] = ya[k] = 0.0f;
     }
+
+    dt_aligned_pixel_t xc = {0.0f};
+    dt_aligned_pixel_t yc = {0.0f};
+    dt_aligned_pixel_t xn = {0.0f};
+    dt_aligned_pixel_t xa = {0.0f};
+    dt_aligned_pixel_t yn = {0.0f};
+    dt_aligned_pixel_t ya = {0.0f};
 
     for(int i = 0; i < width; i++)
     {
@@ -622,8 +624,8 @@ cl_int dt_gaussian_blur_cl(dt_gaussian_cl_t *g, cl_mem dev_in, cl_mem dev_out)
   const int bwidth = g->bwidth;
   const int bheight = g->bheight;
 
-  float Labmax[4] = { 0.0f };
-  float Labmin[4] = { 0.0f };
+  dt_aligned_pixel_t Labmax = { 0.0f };
+  dt_aligned_pixel_t Labmin = { 0.0f };
 
   for(int k = 0; k < MIN(channels, 4); k++)
   {

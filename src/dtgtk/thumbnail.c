@@ -33,6 +33,7 @@
 #include "dtgtk/icon.h"
 #include "dtgtk/thumbnail_btn.h"
 #include "gui/drag_and_drop.h"
+#include "gui/accelerators.h"
 #include "views/view.h"
 
 static void _thumb_resize_overlays(dt_thumbnail_t *thumb);
@@ -88,13 +89,13 @@ static void _image_update_group_tooltip(dt_thumbnail_t *thumb)
 
   // the group leader
   if(thumb->imgid == thumb->groupid)
-    tt = dt_util_dstrcat(tt, "\n<b>%s (%s)</b>", _("current"), _("leader"));
+    tt = g_strdup_printf("\n<b>%s (%s)</b>", _("current"), _("leader"));
   else
   {
     const dt_image_t *img = dt_image_cache_get(darktable.image_cache, thumb->groupid, 'r');
     if(img)
     {
-      tt = dt_util_dstrcat(tt, "\n<b>%s (%s)</b>", img->filename, _("leader"));
+      tt = g_strdup_printf("\n<b>%s (%s)</b>", img->filename, _("leader"));
       dt_image_cache_read_release(darktable.image_cache, img);
     }
   }
@@ -125,12 +126,28 @@ static void _image_update_group_tooltip(dt_thumbnail_t *thumb)
   sqlite3_finalize(stmt);
 
   // and the number of grouped images
-  gchar *ttf = dt_util_dstrcat(NULL, "%d %s\n%s", nb, _("grouped images"), tt);
+  gchar *ttf = g_strdup_printf("%d %s\n%s", nb, _("grouped images"), tt);
   g_free(tt);
 
   // let's apply the tooltip
   gtk_widget_set_tooltip_markup(thumb->w_group, ttf);
   g_free(ttf);
+}
+
+static void _thumb_update_rating_class(dt_thumbnail_t *thumb)
+{
+  if(!thumb->w_main) return;
+
+  GtkStyleContext *context = gtk_widget_get_style_context(thumb->w_main);
+  for(int i = DT_VIEW_DESERT; i <= DT_VIEW_REJECT; i++)
+  {
+    gchar *cn = g_strdup_printf("dt_thumbnail_rating_%d", i);
+    if(thumb->rating == i)
+      gtk_style_context_add_class(context, cn);
+    else
+      gtk_style_context_remove_class(context, cn);
+    g_free(cn);
+  }
 }
 
 static void _image_get_infos(dt_thumbnail_t *thumb)
@@ -140,6 +157,7 @@ static void _image_get_infos(dt_thumbnail_t *thumb)
 
   // we only get here infos that might change, others(exif, ...) are cached on widget creation
 
+  const int old_rating = thumb->rating;
   thumb->rating = 0;
   const dt_image_t *img = dt_image_cache_get(darktable.image_cache, thumb->imgid, 'r');
   if(img)
@@ -153,6 +171,11 @@ static void _image_get_infos(dt_thumbnail_t *thumb)
     thumb->groupid = img->group_id;
 
     dt_image_cache_read_release(darktable.image_cache, img);
+  }
+  // if the rating as changed, update the rejected
+  if(old_rating != thumb->rating)
+  {
+    _thumb_update_rating_class(thumb);
   }
 
   // colorlabels
@@ -230,12 +253,16 @@ static void _thumb_draw_image(dt_thumbnail_t *thumb, cairo_t *cr)
   if(thumb->img_surf && cairo_surface_get_reference_count(thumb->img_surf) >= 1)
   {
     cairo_save(cr);
-    float scaler = 1.0f / darktable.gui->ppd_thb;
+    const float scaler = 1.0f / darktable.gui->ppd_thb;
     cairo_scale(cr, scaler, scaler);
 
     cairo_set_source_surface(cr, thumb->img_surf, thumb->zoomx * darktable.gui->ppd,
                              thumb->zoomy * darktable.gui->ppd);
-    cairo_paint(cr);
+
+    // get the transparency value
+    GdkRGBA im_color;
+    gtk_style_context_get_color(context, gtk_widget_get_state_flags(thumb->w_image), &im_color);
+    cairo_paint_with_alpha(cr, im_color.alpha);
 
     // and eventually the image border
     gtk_render_frame(context, cr, 0, 0, w * darktable.gui->ppd_thb, h * darktable.gui->ppd_thb);
@@ -271,14 +298,11 @@ static void _thumb_write_extension(dt_thumbnail_t *thumb)
 {
   // fill the file extension label
   const char *ext = thumb->filename + strlen(thumb->filename);
-  gchar *ext2 = NULL;
   while(ext > thumb->filename && *ext != '.') ext--;
   ext++;
   gchar *uext = dt_view_extend_modes_str(ext, thumb->is_hdr, thumb->is_bw, thumb->is_bw_flow);
-  ext2 = dt_util_dstrcat(ext2, "%s", uext);
-  gtk_label_set_text(GTK_LABEL(thumb->w_ext), ext2);
+  gtk_label_set_text(GTK_LABEL(thumb->w_ext), uext);
   g_free(uext);
-  g_free(ext2);
 }
 
 static gboolean _event_cursor_draw(GtkWidget *widget, cairo_t *cr, gpointer user_data)
@@ -497,7 +521,9 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
   }
 
   // if image surface has no more ref. let's samitize it's value to NULL
-  if(thumb->img_surf && cairo_surface_get_reference_count(thumb->img_surf) < 1) thumb->img_surf = NULL;
+  if(thumb->img_surf
+     && cairo_surface_get_reference_count(thumb->img_surf) < 1)
+    thumb->img_surf = NULL;
 
   // if we don't have it in memory, we want the image surface
   dt_view_surface_value_t res = DT_VIEW_SURFACE_OK;
@@ -508,7 +534,8 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
     _thumb_set_image_area(thumb, IMG_TO_FIT);
     gtk_widget_get_size_request(thumb->w_image_box, &image_w, &image_h);
 
-    if(v->view(v) == DT_VIEW_DARKROOM && dev->preview_pipe->output_imgid == thumb->imgid
+    if(v->view(v) == DT_VIEW_DARKROOM
+       && dev->preview_pipe->output_imgid == thumb->imgid
        && dev->preview_pipe->output_backbuf)
     {
       // the current thumb is the one currently developed in darkroom
@@ -574,7 +601,8 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
       cairo_surface_t *img_surf = NULL;
       if(thumb->zoomable)
       {
-        if(thumb->zoom > 1.0f) thumb->zoom = MIN(thumb->zoom, dt_thumbnail_get_zoom100(thumb));
+        if(thumb->zoom > 1.0f)
+          thumb->zoom = MIN(thumb->zoom, dt_thumbnail_get_zoom100(thumb));
         res = dt_view_image_get_surface(thumb->imgid, image_w * thumb->zoom, image_h * thumb->zoom, &img_surf, FALSE);
       }
       else
@@ -587,7 +615,8 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
         // if we succeed to get an image (even a smaller one)
         cairo_surface_t *tmp_surf = thumb->img_surf;
         thumb->img_surf = img_surf;
-        if(tmp_surf && cairo_surface_get_reference_count(tmp_surf) > 0) cairo_surface_destroy(tmp_surf);
+        if(tmp_surf && cairo_surface_get_reference_count(tmp_surf) > 0)
+          cairo_surface_destroy(tmp_surf);
       }
     }
 
@@ -620,7 +649,8 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
           = CLAMP(thumb->zoomy, (nhi * darktable.gui->ppd_thb - thumb->img_height) / darktable.gui->ppd_thb, 0);
 
       // for overlay block, we need to resize it
-      if(thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK) _thumb_resize_overlays(thumb);
+      if(thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK)
+        _thumb_resize_overlays(thumb);
     }
 
     // if we don't have the right size of the image now, we reload it again
@@ -666,7 +696,9 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
     }
 
     // and we can also set the zooming level if needed
-    if(res == DT_VIEW_SURFACE_OK && thumb->zoomable && thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK)
+    if(res == DT_VIEW_SURFACE_OK
+       && thumb->zoomable
+       && thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK)
     {
       if(thumb->zoom_100 < 1.0 || thumb->zoom <= 1.0f)
       {
@@ -674,7 +706,7 @@ static gboolean _event_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_
       }
       else
       {
-        gchar *z = dt_util_dstrcat(NULL, "%.0f%%", thumb->zoom * 100.0 / thumb->zoom_100);
+        gchar *z = g_strdup_printf("%.0f%%", thumb->zoom * 100.0 / thumb->zoom_100);
         gtk_label_set_text(GTK_LABEL(thumb->w_zoom), z);
         g_free(z);
       }
@@ -882,9 +914,9 @@ static gboolean _event_grouping_release(GtkWidget *widget, GdkEventButton *event
   if(event->button == 1 && !thumb->moved)
   {
     //TODO: will succeed if either or *both* of Shift and Control are pressed.  Do we want this?
-    if(event->state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK)) // just add the whole group to the selection. TODO:
-                                                           // make this also work for collapsed groups.
+    if(dt_modifier_is(event->state, GDK_SHIFT_MASK) | dt_modifier_is(event->state, GDK_CONTROL_MASK))
     {
+      // just add the whole group to the selection. TODO: make this also work for collapsed groups.
       sqlite3_stmt *stmt;
       DT_DEBUG_SQLITE3_PREPARE_V2(
           dt_database_get(darktable.db),
@@ -1089,6 +1121,9 @@ static gboolean _event_image_enter_leave(GtkWidget *widget, GdkEventCrossing *ev
 static gboolean _event_btn_enter_leave(GtkWidget *widget, GdkEventCrossing *event, gpointer user_data)
 {
   dt_thumbnail_t *thumb = (dt_thumbnail_t *)user_data;
+
+  if(event->type == GDK_ENTER_NOTIFY && widget == thumb->w_reject) darktable.control->element = DT_VIEW_REJECT;
+
   // if we leave for ancestor, that means we leave for blank thumbtable area
   if(event->type == GDK_LEAVE_NOTIFY && event->detail == GDK_NOTIFY_ANCESTOR) dt_control_set_mouse_over_id(-1);
 
@@ -1111,7 +1146,11 @@ static gboolean _event_star_enter(GtkWidget *widget, GdkEventCrossing *event, gp
   {
     _set_flag(thumb->w_stars[i], GTK_STATE_FLAG_PRELIGHT, pre);
     gtk_widget_queue_draw(thumb->w_stars[i]);
-    if(thumb->w_stars[i] == widget) pre = FALSE;
+    if(thumb->w_stars[i] == widget)
+    {
+      darktable.control->element = i + 1;
+      pre = FALSE;
+    }
   }
   return TRUE;
 }
@@ -1145,11 +1184,32 @@ static gboolean _event_main_drag_motion(GtkWidget *widget, GdkDragContext *dc, g
   return TRUE;
 }
 
+static void _event_image_style_updated(GtkWidget *w, dt_thumbnail_t *thumb)
+{
+  // for some reason the style has changed. We have to recompute margins and resize the overlays
+
+  // we retrieve the eventual new margins
+  const int oldt = thumb->img_margin->top;
+  const int oldr = thumb->img_margin->right;
+  const int oldb = thumb->img_margin->bottom;
+  const int oldl = thumb->img_margin->left;
+  _thumb_retrieve_margins(thumb);
+
+  if(oldt != thumb->img_margin->top
+     || oldr != thumb->img_margin->right
+     || oldb != thumb->img_margin->bottom
+     || oldl != thumb->img_margin->left)
+  {
+    _thumb_resize_overlays(thumb);
+  }
+}
+
 GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
 {
   // main widget (overlay)
   thumb->w_main = gtk_overlay_new();
   gtk_widget_set_name(thumb->w_main, "thumb_main");
+  _thumb_update_rating_class(thumb);
   gtk_widget_set_size_request(thumb->w_main, thumb->width, thumb->height);
 
   if(thumb->imgid > 0)
@@ -1234,6 +1294,7 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
     g_signal_connect(G_OBJECT(thumb->w_image), "motion-notify-event", G_CALLBACK(_event_main_motion), thumb);
     g_signal_connect(G_OBJECT(thumb->w_image), "enter-notify-event", G_CALLBACK(_event_image_enter_leave), thumb);
     g_signal_connect(G_OBJECT(thumb->w_image), "leave-notify-event", G_CALLBACK(_event_image_enter_leave), thumb);
+    g_signal_connect(G_OBJECT(thumb->w_image), "style-updated", G_CALLBACK(_event_image_style_updated), thumb);
     gtk_widget_show(thumb->w_image);
     gtk_overlay_add_overlay(GTK_OVERLAY(thumb->w_image_box), thumb->w_image);
     gtk_overlay_add_overlay(GTK_OVERLAY(thumb->w_main), thumb->w_image_box);
@@ -1263,7 +1324,7 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
     if(thumb->over == DT_THUMBNAIL_OVERLAYS_ALWAYS_EXTENDED || thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_EXTENDED
        || thumb->over == DT_THUMBNAIL_OVERLAYS_MIXED || thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK)
     {
-      gchar *lb = dt_util_dstrcat(NULL, "%s", thumb->info_line);
+      gchar *lb = g_strdup(thumb->info_line);
       thumb->w_bottom = gtk_label_new(NULL);
       gtk_label_set_markup(GTK_LABEL(thumb->w_bottom), lb);
       g_free(lb);
@@ -1283,6 +1344,7 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
     // the reject icon
     thumb->w_reject = dtgtk_thumbnail_btn_new(dtgtk_cairo_paint_reject, 0, NULL);
     gtk_widget_set_name(thumb->w_reject, "thumb_reject");
+    dt_action_define(&darktable.control->actions_thumb, NULL, "rating", thumb->w_reject, &dt_action_def_rating);
     gtk_widget_set_valign(thumb->w_reject, GTK_ALIGN_END);
     gtk_widget_set_halign(thumb->w_reject, GTK_ALIGN_START);
     gtk_widget_show(thumb->w_reject);
@@ -1302,6 +1364,7 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
       g_signal_connect(G_OBJECT(thumb->w_stars[i]), "button-release-event", G_CALLBACK(_event_rating_release),
                        thumb);
       gtk_widget_set_name(thumb->w_stars[i], "thumb_star");
+      dt_action_define(&darktable.control->actions_thumb, NULL, "rating", thumb->w_stars[i], &dt_action_def_rating);
       gtk_widget_set_valign(thumb->w_stars[i], GTK_ALIGN_END);
       gtk_widget_set_halign(thumb->w_stars[i], GTK_ALIGN_START);
       gtk_widget_show(thumb->w_stars[i]);
@@ -1487,19 +1550,21 @@ static void _thumb_resize_overlays(dt_thumbnail_t *thumb)
   int height = 0;
 
   int max_size = darktable.gui->icon_size;
-  if(max_size < 2) max_size = round(1.2f * darktable.bauhaus->line_height); // fallback if toolbar icons are not realized
+  if(max_size < 2)
+    max_size = round(1.2f * darktable.bauhaus->line_height); // fallback if toolbar icons are not realized
 
   if(thumb->over != DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK)
   {
     gtk_widget_get_size_request(thumb->w_main, &width, &height);
-    // we need to squeeze 5 stars + 1 reject + 1 colorlabels symbols on a thumbnail width
-    // stars + reject having a width of 2 * r1 and spaced by r1 => 18 * r1
-    // colorlabels => 3 * r1 + space r1
+    // we need to squeeze reject + space + stars + space + colorlabels icons on a thumbnail width
+    // that means a width of 4 + MAX_STARS icons size
+    // all icons and spaces having a width of 2.5 * r1
     // inner margins are defined in css (margin_* values)
 
     // retrieves the size of the main icons in the top panel, thumbtable overlays shall not exceed that
-    const float r1 = fminf(max_size / 2.0f, (width - thumb->img_margin->left - thumb->img_margin->right) / 22.0f);
-    const float icon_size = 2.5 * r1;
+    const float r1 = fminf(max_size / 2.0f,
+                           (width - thumb->img_margin->left - thumb->img_margin->right) / (2.5 * (4 + MAX_STARS)));
+    const int icon_size = roundf(2.5 * r1);
 
     // file extension
     gtk_widget_set_margin_top(thumb->w_ext, thumb->img_margin->top);
@@ -1534,7 +1599,7 @@ static void _thumb_resize_overlays(dt_thumbnail_t *thumb)
     const int margin_b_icons = MAX(0, thumb->img_margin->bottom - icon_size * 0.125 - 1);
     gtk_widget_set_size_request(thumb->w_reject, icon_size, icon_size);
     gtk_widget_set_valign(thumb->w_reject, GTK_ALIGN_END);
-    int pos = MAX(0, MAX(thumb->img_margin->left - icon_size * 0.125, (width - 15.0 * r1) * 0.5 - 4 * 3.0 * r1));
+    int pos = MAX(0, thumb->img_margin->left - icon_size * 0.125); // align on the left of the thumb
     gtk_widget_set_margin_start(thumb->w_reject, pos);
     gtk_widget_set_margin_bottom(thumb->w_reject, margin_b_icons);
 
@@ -1545,9 +1610,10 @@ static void _thumb_resize_overlays(dt_thumbnail_t *thumb)
       gtk_widget_set_valign(thumb->w_stars[i], GTK_ALIGN_END);
       gtk_widget_set_margin_bottom(thumb->w_stars[i], margin_b_icons);
       gtk_widget_set_margin_start(
-          thumb->w_stars[i], thumb->img_margin->left
-                                 + (width - thumb->img_margin->left - thumb->img_margin->right - 13.0 * r1) * 0.5
-                                 + i * 2.5 * r1);
+          thumb->w_stars[i],
+          thumb->img_margin->left
+              + (width - thumb->img_margin->left - thumb->img_margin->right - MAX_STARS * icon_size) * 0.5
+              + i * icon_size);
     }
 
     // the color labels
@@ -1555,8 +1621,7 @@ static void _thumb_resize_overlays(dt_thumbnail_t *thumb)
     gtk_widget_set_valign(thumb->w_color, GTK_ALIGN_END);
     gtk_widget_set_halign(thumb->w_color, GTK_ALIGN_START);
     gtk_widget_set_margin_bottom(thumb->w_color, margin_b_icons);
-    pos = MIN(width - (thumb->img_margin->right - icon_size * 0.125 + icon_size),
-              (width - 15.0 * r1) * 0.5 + 8.25 * 3.0 * r1);
+    pos = width - thumb->img_margin->right - icon_size + icon_size * 0.125; // align on the right
     gtk_widget_set_margin_start(thumb->w_color, pos);
 
     // the local copy indicator
@@ -1714,7 +1779,7 @@ void dt_thumbnail_resize(dt_thumbnail_t *thumb, int width, int height, gboolean 
   if(thumb->container == DT_THUMBNAIL_CONTAINER_LIGHTTABLE)
   {
     // we get the corresponding size
-    gchar *txt = dt_conf_get_string("plugins/lighttable/thumbnail_sizes");
+    const char *txt = dt_conf_get_string_const("plugins/lighttable/thumbnail_sizes");
     gchar **ts = g_strsplit(txt, "|", -1);
     int i = 0;
     while(ts[i])
@@ -1724,9 +1789,8 @@ void dt_thumbnail_resize(dt_thumbnail_t *thumb, int width, int height, gboolean 
       i++;
     }
     g_strfreev(ts);
-    g_free(txt);
 
-    gchar *cl = dt_util_dstrcat(NULL, "dt_thumbnails_%d", i);
+    gchar *cl = g_strdup_printf("dt_thumbnails_%d", i);
     GtkStyleContext *context = gtk_widget_get_style_context(thumb->w_image);
     if(!gtk_style_context_has_class(context, cl))
     {
@@ -1755,7 +1819,8 @@ void dt_thumbnail_resize(dt_thumbnail_t *thumb, int width, int height, gboolean 
 
   // retrieves the size of the main icons in the top panel, thumbtable overlays shall not exceed that
   int max_size = darktable.gui->icon_size;
-  if(max_size < 2) max_size = round(1.2f * darktable.bauhaus->line_height); // fallback if toolbar icons are not realized
+  if(max_size < 2)
+    max_size = round(1.2f * darktable.bauhaus->line_height); // fallback if toolbar icons are not realized
 
   const int fsize = fminf(max_size, (height - thumb->img_margin->top - thumb->img_margin->bottom) / 11.0f);
 
@@ -1962,7 +2027,7 @@ void dt_thumbnail_reload_infos(dt_thumbnail_t *thumb)
   gchar *lb = NULL;
   if(thumb->over == DT_THUMBNAIL_OVERLAYS_ALWAYS_EXTENDED || thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_EXTENDED
      || thumb->over == DT_THUMBNAIL_OVERLAYS_MIXED || thumb->over == DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK)
-    lb = dt_util_dstrcat(NULL, "%s", thumb->info_line);
+    lb = g_strdup(thumb->info_line);
 
   // we set the text
   gtk_label_set_markup(GTK_LABEL(thumb->w_bottom), lb);

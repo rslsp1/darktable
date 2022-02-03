@@ -179,16 +179,12 @@ static void _update(dt_lib_module_t *self)
   dt_lib_cancel_postponed_update(self);
   const dt_lib_export_t *d = (dt_lib_export_t *)self->data;
 
-  const GList *imgs = dt_view_get_images_to_act_on(TRUE, FALSE, FALSE);
-  const gboolean has_act_on = imgs != NULL;
+  const gboolean has_act_on = (dt_act_on_get_images_nb(TRUE, FALSE) > 0);
 
-  char *format_name = dt_conf_get_string(CONFIG_PREFIX "format_name");
-  char *storage_name = dt_conf_get_string(CONFIG_PREFIX "storage_name");
+  const char *format_name = dt_conf_get_string_const(CONFIG_PREFIX "format_name");
+  const char *storage_name = dt_conf_get_string_const(CONFIG_PREFIX "storage_name");
   const int format_index = dt_imageio_get_index_of_format(dt_imageio_get_format_by_name(format_name));
   const int storage_index = dt_imageio_get_index_of_storage(dt_imageio_get_storage_by_name(storage_name));
-
-  g_free(format_name);
-  g_free(storage_name);
 
   gtk_widget_set_sensitive(GTK_WIDGET(d->export_button), has_act_on && format_index != -1 && storage_index != -1);
 }
@@ -225,9 +221,9 @@ static void _scale_optim()
   gchar *pdiv = strchr(scale_str, '/');
 
   gchar scale_buf[64] = "";
-  if (pdiv == NULL)
+  if(pdiv == NULL)
   {
-    if (_is_int(num) && num > 0.0)
+    if(_is_int(num) && num > 0.0)
     {
       sprintf(_str, "%d", (int) num);
       g_strlcat(scale_buf, _str, sizeof(scale_buf));
@@ -237,9 +233,9 @@ static void _scale_optim()
       g_strlcat(scale_buf, scale_str, sizeof(scale_buf));
     }
   }
-  else if (pdiv-scale_str == 0)
+  else if(pdiv-scale_str == 0)
   {
-    if (_is_int(denum) && denum > 0.0)
+    if(_is_int(denum) && denum > 0.0)
     {
       sprintf(_str, "%d", (int) denum);
       g_strlcat(scale_buf, _str, sizeof(scale_buf));
@@ -252,7 +248,7 @@ static void _scale_optim()
   }
   else
   {
-    if (_is_int(num) && num > 0.0)
+    if(_is_int(num) && num > 0.0)
     {
       sprintf(_str, "%d", (int) num);
       g_strlcat(scale_buf, _str, sizeof(scale_buf));
@@ -262,7 +258,7 @@ static void _scale_optim()
       g_strlcat(scale_buf, scale_str, sizeof(scale_buf));
     }
     g_strlcat(scale_buf, "/", sizeof(scale_buf));
-    if (_is_int(denum) && denum > 0.0)
+    if(_is_int(denum) && denum > 0.0)
     {
       sprintf(_str, "%d", (int) denum);
       g_strlcat(scale_buf, _str, sizeof(scale_buf));
@@ -289,13 +285,10 @@ static void _export_button_clicked(GtkWidget *widget, dt_lib_export_t *d)
 
   // get the format_name and storage_name settings which are plug-ins name and not necessary what is displayed on the combobox.
   // note that we cannot take directly the combobox entry index as depending on the storage some format are not listed.
-  char *format_name = dt_conf_get_string(CONFIG_PREFIX "format_name");
-  char *storage_name = dt_conf_get_string(CONFIG_PREFIX "storage_name");
+  const char *format_name = dt_conf_get_string_const(CONFIG_PREFIX "format_name");
+  const char *storage_name = dt_conf_get_string_const(CONFIG_PREFIX "storage_name");
   const int format_index = dt_imageio_get_index_of_format(dt_imageio_get_format_by_name(format_name));
   const int storage_index = dt_imageio_get_index_of_storage(dt_imageio_get_storage_by_name(storage_name));
-
-  g_free(format_name);
-  g_free(storage_name);
 
   if(format_index == -1)
   {
@@ -341,12 +334,11 @@ static void _export_button_clicked(GtkWidget *widget, dt_lib_export_t *d)
   const gboolean upscale = dt_conf_get_bool(CONFIG_PREFIX "upscale");
   const gboolean high_quality = dt_conf_get_bool(CONFIG_PREFIX "high_quality_processing");
   const gboolean export_masks = dt_conf_get_bool(CONFIG_PREFIX "export_masks");
-  char *tmp = dt_conf_get_string(CONFIG_PREFIX "style");
   const gboolean style_append = dt_conf_get_bool(CONFIG_PREFIX "style_append");
+  const char *tmp = dt_conf_get_string_const(CONFIG_PREFIX "style");
   if(tmp)
   {
     g_strlcpy(style, tmp, sizeof(style));
-    g_free(tmp);
   }
 
   // if upscale is activated and only one dimension is 0 we adjust it to ensure
@@ -371,14 +363,14 @@ static void _export_button_clicked(GtkWidget *widget, dt_lib_export_t *d)
   gchar *icc_filename = dt_conf_get_string(CONFIG_PREFIX "iccprofile");
   const dt_iop_color_intent_t icc_intent = dt_conf_get_int(CONFIG_PREFIX "iccintent");
 
-  GList *list = g_list_copy((GList *)dt_view_get_images_to_act_on(TRUE, TRUE, TRUE));
+  GList *list = dt_act_on_get_images(TRUE, TRUE, TRUE);
   dt_control_export(list, max_width, max_height, format_index, storage_index, high_quality, upscale, export_masks,
                     style, style_append, icc_type, icc_filename, icc_intent, d->metadata_export);
 
   g_free(icc_filename);
 
   _scale_optim();
-  gtk_entry_set_text(GTK_ENTRY(d->scale), dt_conf_get_string(CONFIG_PREFIX "resizing_factor"));
+  gtk_entry_set_text(GTK_ENTRY(d->scale), dt_conf_get_string_const(CONFIG_PREFIX "resizing_factor"));
 }
 
 static void _scale_changed(GtkEntry *spin, dt_lib_export_t *d)
@@ -393,17 +385,17 @@ static void _scale_changed(GtkEntry *spin, dt_lib_export_t *d)
   for (i = 0; i < len; i++)
   {
     char *val = strchr(validSign, value[i]);
-    if (val == NULL)
+    if(val == NULL)
     {
-      if (idiv==0)
+      if(idiv==0)
       {
-        if (i == 0)
+        if(i == 0)
         {
           new_value[j++] = '1';
         }
         else
         {
-          if (atof(value) == 0.0)
+          if(atof(value) == 0.0)
           {
             new_value[0] = '1';
           }
@@ -414,11 +406,11 @@ static void _scale_changed(GtkEntry *spin, dt_lib_export_t *d)
         }
       }
     }
-    else if ((val[0] == '.') || (val[0] == ','))
+    else if((val[0] == '.') || (val[0] == ','))
     {
-      if (idec == 0)
+      if(idec == 0)
       {
-        if ((i == 0) || (i == pdiv))
+        if((i == 0) || (i == pdiv))
         {
           new_value[j++] = '0';
         }
@@ -429,7 +421,7 @@ static void _scale_changed(GtkEntry *spin, dt_lib_export_t *d)
         }
       }
     }
-    else if (value[i] == '\0')
+    else if(value[i] == '\0')
     {
       break;
     }
@@ -445,9 +437,9 @@ static void _scale_changed(GtkEntry *spin, dt_lib_export_t *d)
 static void _width_changed(GtkEditable *entry, gpointer user_data);
 static void _height_changed(GtkEditable *entry, gpointer user_data);
 
-static void _scale_mdlclick(GtkEntry *spin, GdkEventButton *event, dt_lib_export_t *d)
+static gboolean _scale_mdlclick(GtkEntry *spin, GdkEventButton *event, dt_lib_export_t *d)
 {
-  if (event->button == 2)
+  if(event->button == 2)
   {
     dt_conf_set_string(CONFIG_PREFIX "resizing_factor", "1");
     g_signal_handlers_block_by_func(spin, _scale_changed, d);
@@ -458,11 +450,12 @@ static void _scale_mdlclick(GtkEntry *spin, GdkEventButton *event, dt_lib_export
   {
     _scale_changed(spin, d);
   }
+  return FALSE;
 }
 
 static void _widht_mdlclick(GtkEntry *spin, GdkEventButton *event, gpointer user_data)
 {
-  if (event->button == 2)
+  if(event->button == 2)
   {
     dt_conf_set_int(CONFIG_PREFIX "width", 0);
     g_signal_handlers_block_by_func(spin, _width_changed, user_data);
@@ -477,7 +470,7 @@ static void _widht_mdlclick(GtkEntry *spin, GdkEventButton *event, gpointer user
 
 static void _height_mdlclick(GtkEntry *spin, GdkEventButton *event, gpointer user_data)
 {
-  if (event->button == 2)
+  if(event->button == 2)
   {
     dt_conf_set_int(CONFIG_PREFIX "height", 0);
     g_signal_handlers_block_by_func(spin, _height_changed, user_data);
@@ -494,7 +487,7 @@ static void _size_in_px_update(dt_lib_export_t *d)
 {
   const dt_dimensions_type_t d_type = (dt_dimensions_type_t)dt_bauhaus_combobox_get(d->dimensions_type);
 
-  if ((d_type == DT_DIMENSIONS_SCALE) || (d_type == DT_DIMENSIONS_PIXELS))
+  if((d_type == DT_DIMENSIONS_SCALE) || (d_type == DT_DIMENSIONS_PIXELS))
   {
     gtk_widget_hide(d->size_in_px);
   }
@@ -528,32 +521,17 @@ void _set_dimensions(dt_lib_export_t *d, uint32_t max_width, uint32_t max_height
 }
 
 
-void _print_size_update_display(dt_lib_export_t *self)
+void _size_update_display(dt_lib_export_t *self)
 {
   const dt_dimensions_type_t d_type = (dt_dimensions_type_t)dt_bauhaus_combobox_get(self->dimensions_type);
 
-  if(d_type == DT_DIMENSIONS_PIXELS)
-  {
-    gtk_widget_set_visible(GTK_WIDGET(self->print_size), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(self->width), TRUE);
-    gtk_widget_set_sensitive(GTK_WIDGET(self->height), TRUE);
-  }
-  else
-  {
-    const gboolean is_scaling = dt_conf_is_equal(CONFIG_PREFIX "resizing", "scaling");
-    if (!is_scaling)
-    {
-      // max size
-      gtk_widget_set_visible(GTK_WIDGET(self->print_size), TRUE);
-    }
-    gtk_widget_set_sensitive(GTK_WIDGET(self->width), FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET(self->height), FALSE);
+  gtk_widget_set_visible(self->px_size, d_type == DT_DIMENSIONS_PIXELS);
+  gtk_widget_set_visible(self->print_size, d_type == DT_DIMENSIONS_CM || d_type == DT_DIMENSIONS_INCH);
+  gtk_widget_set_visible(self->scale, d_type == DT_DIMENSIONS_SCALE);
 
-    if(d_type == DT_DIMENSIONS_CM)
-      gtk_label_set_text(GTK_LABEL(self->unit_label), _("cm"));
-    else // DT_DIMENSIONS_INCH
-      gtk_label_set_text(GTK_LABEL(self->unit_label), C_("unit", "in"));
-  }
+  gtk_label_set_text(GTK_LABEL(self->unit_label),
+                     d_type == DT_DIMENSIONS_CM ? _("cm") : C_("unit", "in"));
+  _size_in_px_update(self);
 }
 
 void gui_reset(dt_lib_module_t *self)
@@ -564,7 +542,7 @@ void gui_reset(dt_lib_module_t *self)
   gtk_entry_set_text(GTK_ENTRY(d->width), dt_confgen_get(CONFIG_PREFIX "width", DT_DEFAULT));
   gtk_entry_set_text(GTK_ENTRY(d->height), dt_confgen_get(CONFIG_PREFIX "height", DT_DEFAULT));
   dt_bauhaus_combobox_set(d->dimensions_type, dt_confgen_get_int(CONFIG_PREFIX "dimensions_type", DT_DEFAULT));
-  _print_size_update_display(d);
+  _size_update_display(d);
 
   // Set storage
   const int storage_index = dt_imageio_get_index_of_storage(dt_imageio_get_storage_by_name(dt_confgen_get(CONFIG_PREFIX "storage_name", DT_DEFAULT)));
@@ -695,13 +673,11 @@ static void _format_changed(GtkWidget *widget, dt_lib_export_t *d)
 
 static void _get_max_output_dimension(dt_lib_export_t *d, uint32_t *width, uint32_t *height)
 {
-  gchar *storage_name = dt_conf_get_string(CONFIG_PREFIX "storage_name");
+  const char *storage_name = dt_conf_get_string_const(CONFIG_PREFIX "storage_name");
   dt_imageio_module_storage_t *storage = dt_imageio_get_storage_by_name(storage_name);
-  g_free(storage_name);
 
-  char *format_name = dt_conf_get_string(CONFIG_PREFIX "format_name");
+  const char *format_name = dt_conf_get_string_const(CONFIG_PREFIX "format_name");
   dt_imageio_module_format_t *format = dt_imageio_get_format_by_name(format_name);
-  g_free(format_name);
 
   if(storage && format)
   {
@@ -797,9 +773,8 @@ static void set_storage_by_name(dt_lib_export_t *d, const char *name)
   _update_formats_combobox(d);
 
   // Lets try to set selected format if fail select first in list..
-  gchar *format_name = dt_conf_get_string(CONFIG_PREFIX "format_name");
+  const char *format_name = dt_conf_get_string_const(CONFIG_PREFIX "format_name");
   const dt_imageio_module_format_t *format = dt_imageio_get_format_by_name(format_name);
-  g_free(format_name);
 
   if(format == NULL
      || dt_bauhaus_combobox_set_from_text(d->format, format->name()) == FALSE)
@@ -845,42 +820,20 @@ static void _dimensions_type_changed(GtkWidget *widget, dt_lib_export_t *d)
   const dt_dimensions_type_t d_type = (dt_dimensions_type_t)dt_bauhaus_combobox_get(widget);
 
   dt_conf_set_int(CONFIG_PREFIX "dimensions_type", d_type);
-  if(d_type != DT_DIMENSIONS_SCALE)
-  {
-    if(d_type != DT_DIMENSIONS_PIXELS)
-    {
-      gtk_widget_hide(GTK_WIDGET(d->px_size));
-      gtk_widget_show(GTK_WIDGET(d->print_size));
-      gtk_widget_hide(GTK_WIDGET(d->scale));
-      _resync_print_dimensions(d);
-    }
-    else
-    {
-      gtk_widget_show(GTK_WIDGET(d->px_size));
-      gtk_widget_hide(GTK_WIDGET(d->print_size));
-      gtk_widget_hide(GTK_WIDGET(d->scale));
-    }
-    dt_conf_set_string(CONFIG_PREFIX "resizing", "max_size");
-    _print_size_update_display(d);
-  }
-  else
-  {
-    gtk_widget_show(GTK_WIDGET(d->scale));
-    gtk_widget_hide(GTK_WIDGET(d->px_size));
-    gtk_widget_hide(GTK_WIDGET(d->print_size));
-    dt_conf_set_string(CONFIG_PREFIX "resizing", "scaling");
-  }
+  dt_conf_set_string(CONFIG_PREFIX "resizing",
+                     d_type == DT_DIMENSIONS_SCALE ? "scaling" : "max_size");
   if(d_type == DT_DIMENSIONS_CM || d_type == DT_DIMENSIONS_INCH)
   {
     // set dpi to user-set dpi
     dt_conf_set_int("metadata/resolution", dt_conf_get_int(CONFIG_PREFIX "print_dpi"));
+    _resync_print_dimensions(d);
   }
   else
   {
     // reset export dpi to default value for scale/pixel specific export
     dt_conf_set_int("metadata/resolution", dt_confgen_get_int("metadata/resolution", DT_DEFAULT));
   }
-  _size_in_px_update(d);
+  _size_update_display(d);
 }
 
 static void _resync_print_dimensions(dt_lib_export_t *self)
@@ -1036,9 +989,8 @@ static void _update_formats_combobox(dt_lib_export_t *d)
   dt_bauhaus_combobox_clear(d->format);
 
   // Get current selected storage
-  gchar *storage_name = dt_conf_get_string(CONFIG_PREFIX "storage_name");
+  const char *storage_name = dt_conf_get_string_const(CONFIG_PREFIX "storage_name");
   dt_imageio_module_storage_t *storage = dt_imageio_get_storage_by_name(storage_name);
-  g_free(storage_name);
 
   // Add supported formats to combobox
   gboolean empty = TRUE;
@@ -1109,17 +1061,6 @@ void set_preferences(void *menu, dt_lib_module_t *self)
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
 }
 
-static gboolean _next_widget(GtkWidget *width, GdkEventKey *ev, GtkWidget *next)
-{
-  if(ev->keyval == GDK_KEY_Tab)
-  {
-    gtk_widget_grab_focus(next);
-    return TRUE;
-  }
-
-  return FALSE;
-}
-
 void gui_init(dt_lib_module_t *self)
 {
   dt_lib_export_t *d = (dt_lib_export_t *)malloc(sizeof(dt_lib_export_t));
@@ -1134,7 +1075,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), label, FALSE, TRUE, 0);
   dt_gui_add_help_link(self->widget, dt_get_help_url("export"));
 
-  d->storage = dt_bauhaus_combobox_new(NULL);
+  d->storage = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->storage, NULL, N_("target storage"));
   gtk_box_pack_start(GTK_BOX(self->widget), d->storage, FALSE, TRUE, 0);
 
@@ -1161,7 +1102,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), label, FALSE, TRUE, 0);
   dt_gui_add_help_link(self->widget, dt_get_help_url("export"));
 
-  d->format = dt_bauhaus_combobox_new(NULL);
+  d->format = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->format, NULL, N_("file format"));
   gtk_box_pack_start(GTK_BOX(self->widget), d->format, FALSE, TRUE, 0);
   g_signal_connect(G_OBJECT(d->format), "value-changed", G_CALLBACK(_format_changed), (gpointer)d);
@@ -1183,14 +1124,14 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), label, FALSE, TRUE, 0);
   dt_gui_add_help_link(self->widget, dt_get_help_url("export"));
 
-  d->dimensions_type = dt_bauhaus_combobox_new(NULL);
-  dt_bauhaus_widget_set_label(d->dimensions_type, NULL, N_("set size"));
-  gtk_widget_set_tooltip_text(d->dimensions_type, _("choose a method for setting the output size"));
-  dt_bauhaus_combobox_add(d->dimensions_type, _("in pixels (for file)"));
-  dt_bauhaus_combobox_add(d->dimensions_type, _("in cm (for print)"));
-  dt_bauhaus_combobox_add(d->dimensions_type, _("in inch (for print)"));
-  dt_bauhaus_combobox_add(d->dimensions_type, _("by scale (for file)"));
-  dt_bauhaus_combobox_set(d->dimensions_type, dt_conf_get_int(CONFIG_PREFIX "dimensions_type"));
+  DT_BAUHAUS_COMBOBOX_NEW_FULL(d->dimensions_type, self, NULL, N_("set size"),
+                               _("choose a method for setting the output size"),
+                               dt_conf_get_int(CONFIG_PREFIX "dimensions_type"),
+                               (GtkCallback)_dimensions_type_changed, d,
+                               N_("in pixels (for file)"),
+                               N_("in cm (for print)"),
+                               N_("in inch (for print)"),
+                               N_("by scale (for file)"));
 
   d->print_width = gtk_entry_new();
   gtk_widget_set_tooltip_text(d->print_width, _("maximum output width limit.\n"
@@ -1203,13 +1144,9 @@ void gui_init(dt_lib_module_t *self)
   d->print_dpi = gtk_entry_new();
   gtk_widget_set_tooltip_text(d->print_dpi, _("resolution in dot per inch"));
   gtk_entry_set_width_chars(GTK_ENTRY(d->print_dpi), 4);
-  char *dpi = dt_conf_get_string(CONFIG_PREFIX "print_dpi");
+  const char *dpi = dt_conf_get_string_const(CONFIG_PREFIX "print_dpi");
   gtk_entry_set_text(GTK_ENTRY(d->print_dpi), dpi);
-  g_free(dpi);
 
-  dt_gui_key_accel_block_on_focus_connect(d->print_width);
-  dt_gui_key_accel_block_on_focus_connect(d->print_height);
-  dt_gui_key_accel_block_on_focus_connect(d->print_dpi);
 
   d->width = gtk_entry_new();
   gtk_widget_set_tooltip_text(d->width, _("maximum output width limit.\n"
@@ -1223,8 +1160,6 @@ void gui_init(dt_lib_module_t *self)
   gtk_widget_add_events(d->width, GDK_BUTTON_PRESS_MASK);
   gtk_widget_add_events(d->height, GDK_BUTTON_PRESS_MASK);
 
-  dt_gui_key_accel_block_on_focus_connect(d->width);
-  dt_gui_key_accel_block_on_focus_connect(d->height);
 
   d->print_size = gtk_flow_box_new();
   gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(d->print_size), 5);
@@ -1239,6 +1174,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(dpi_box, d->print_dpi, TRUE, TRUE, 0);
   gtk_box_pack_start(dpi_box, gtk_label_new(_("dpi")), FALSE, FALSE, 0);
   gtk_container_add(GTK_CONTAINER(d->print_size), GTK_WIDGET(dpi_box));
+  gtk_container_foreach(GTK_CONTAINER(d->print_size), (GtkCallback)gtk_widget_set_can_focus, GINT_TO_POINTER(FALSE));
 
   d->px_size = gtk_flow_box_new();
   gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(d->px_size), 3);
@@ -1249,14 +1185,14 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(px_box, d->height, TRUE, TRUE, 0);
   gtk_box_pack_start(px_box, gtk_label_new(_("px")), FALSE, FALSE, 0);
   gtk_container_add(GTK_CONTAINER(d->px_size), GTK_WIDGET(px_box));
+  gtk_container_foreach(GTK_CONTAINER(d->px_size), (GtkCallback)gtk_widget_set_can_focus, GINT_TO_POINTER(FALSE));
 
   d->scale = gtk_entry_new();
   gtk_entry_set_width_chars(GTK_ENTRY(d->scale), 5);
-  gtk_entry_set_text (GTK_ENTRY(d->scale), dt_conf_get_string(CONFIG_PREFIX "resizing_factor"));
+  gtk_entry_set_text (GTK_ENTRY(d->scale), dt_conf_get_string_const(CONFIG_PREFIX "resizing_factor"));
   gtk_widget_set_tooltip_text(d->scale, _("it can be an integer, decimal number or simple fraction.\n"
                                           "zero or empty values are equal to 1.\n"
                                           "click middle mouse button to reset to 1."));
-  dt_gui_key_accel_block_on_focus_connect(d->scale);
   gtk_widget_set_halign(GTK_WIDGET(d->scale), GTK_ALIGN_END);
   gtk_widget_add_events(d->scale, GDK_BUTTON_PRESS_MASK);
 
@@ -1273,20 +1209,20 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->scale), FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->size_in_px), FALSE, FALSE, 0);
 
-  d->upscale = dt_bauhaus_combobox_new(NULL);
+  d->upscale = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->upscale, NULL, N_("allow upscaling"));
   dt_bauhaus_combobox_add(d->upscale, _("no"));
   dt_bauhaus_combobox_add(d->upscale, _("yes"));
   gtk_box_pack_start(GTK_BOX(self->widget), d->upscale, FALSE, TRUE, 0);
 
-  d->high_quality = dt_bauhaus_combobox_new(NULL);
+  d->high_quality = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->high_quality, NULL, N_("high quality resampling"));
   dt_bauhaus_combobox_add(d->high_quality, _("no"));
   dt_bauhaus_combobox_add(d->high_quality, _("yes"));
   gtk_widget_set_tooltip_text(d->high_quality, _("do high quality resampling during export"));
   gtk_box_pack_start(GTK_BOX(self->widget), d->high_quality, FALSE, TRUE, 0);
 
-  d->export_masks = dt_bauhaus_combobox_new(NULL);
+  d->export_masks = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->export_masks, NULL, N_("store masks"));
   dt_bauhaus_combobox_add(d->export_masks, _("no"));
   dt_bauhaus_combobox_add(d->export_masks, _("yes"));
@@ -1300,7 +1236,7 @@ void gui_init(dt_lib_module_t *self)
   dt_loc_get_user_config_dir(confdir, sizeof(confdir));
   dt_loc_get_datadir(datadir, sizeof(datadir));
 
-  d->profile = dt_bauhaus_combobox_new(NULL);
+  d->profile = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->profile, NULL, N_("profile"));
   gtk_box_pack_start(GTK_BOX(self->widget), d->profile, FALSE, TRUE, 0);
   dt_bauhaus_combobox_add(d->profile, _("image settings"));
@@ -1323,7 +1259,7 @@ void gui_init(dt_lib_module_t *self)
 
   //  Add intent combo
 
-  d->intent = dt_bauhaus_combobox_new(NULL);
+  d->intent = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->intent, NULL, N_("intent"));
   dt_bauhaus_combobox_add(d->intent, _("image settings"));
   dt_bauhaus_combobox_add(d->intent, _("perceptual"));
@@ -1360,7 +1296,7 @@ void gui_init(dt_lib_module_t *self)
 
   //  Add style combo
 
-  d->style = dt_bauhaus_combobox_new(NULL);
+  d->style = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->style, NULL, N_("style"));
   _lib_export_styles_changed_callback(NULL, self);
   gtk_box_pack_start(GTK_BOX(self->widget), d->style, FALSE, TRUE, 0);
@@ -1368,7 +1304,7 @@ void gui_init(dt_lib_module_t *self)
 
   //  Add check to control whether the style is to replace or append the current module
 
-  d->style_mode = dt_bauhaus_combobox_new(NULL);
+  d->style_mode = dt_bauhaus_combobox_new_action(DT_ACTION(self));
   dt_bauhaus_widget_set_label(d->style_mode, NULL, N_("mode"));
 
   gtk_box_pack_start(GTK_BOX(self->widget), d->style_mode, FALSE, TRUE, 0);
@@ -1405,7 +1341,6 @@ void gui_init(dt_lib_module_t *self)
   d->export_button = GTK_BUTTON(dt_ui_button_new(_("export"), _("export with current settings"), NULL));
   gtk_box_pack_start(hbox, GTK_WIDGET(d->export_button), TRUE, TRUE, 0);
 
-  g_signal_connect(G_OBJECT(d->dimensions_type), "value_changed", G_CALLBACK(_dimensions_type_changed), (gpointer)d);
   g_signal_connect(G_OBJECT(d->export_button), "clicked", G_CALLBACK(_export_button_clicked), (gpointer)d);
   g_signal_connect(G_OBJECT(d->width), "changed", G_CALLBACK(_width_changed), (gpointer)d);
   g_signal_connect(G_OBJECT(d->height), "changed", G_CALLBACK(_height_changed), (gpointer)d);
@@ -1417,12 +1352,9 @@ void gui_init(dt_lib_module_t *self)
   g_signal_connect(G_OBJECT(d->height), "changed", G_CALLBACK(_height_changed), (gpointer)d);
 
   g_signal_connect(G_OBJECT(d->width), "button-press-event", G_CALLBACK(_widht_mdlclick), (gpointer)d);
-  g_signal_connect(G_OBJECT(d->width), "key-press-event", G_CALLBACK(_next_widget), (gpointer)d->height);
   g_signal_connect(G_OBJECT(d->height), "button-press-event", G_CALLBACK(_height_mdlclick), (gpointer)d);
   g_signal_connect(G_OBJECT(d->print_width), "button-press-event", G_CALLBACK(_widht_mdlclick), (gpointer)d);
-  g_signal_connect(G_OBJECT(d->print_width), "key-press-event", G_CALLBACK(_next_widget), (gpointer)d->print_height);
   g_signal_connect(G_OBJECT(d->print_height), "button-press-event", G_CALLBACK(_height_mdlclick), (gpointer)d);
-  g_signal_connect(G_OBJECT(d->print_height), "key-press-event", G_CALLBACK(_next_widget), (gpointer)d->print_dpi);
 
   g_signal_connect(G_OBJECT(d->scale), "button-press-event", G_CALLBACK(_scale_mdlclick), (gpointer)d);
   g_signal_connect(G_OBJECT(d->scale), "changed", G_CALLBACK(_scale_changed), (gpointer)d);
@@ -1431,36 +1363,16 @@ void gui_init(dt_lib_module_t *self)
   gtk_widget_show_all(self->widget);
   gtk_widget_set_no_show_all(self->widget, TRUE);
 
-  gchar* setting = dt_conf_get_string(CONFIG_PREFIX "width");
+  const char* setting = dt_conf_get_string_const(CONFIG_PREFIX "width");
   gtk_entry_set_text(GTK_ENTRY(d->width), setting);
-  g_free(setting);
-  setting = dt_conf_get_string(CONFIG_PREFIX "height");
+  setting = dt_conf_get_string_const(CONFIG_PREFIX "height");
   gtk_entry_set_text(GTK_ENTRY(d->height), setting);
-  g_free(setting);
-  dt_bauhaus_combobox_set(d->dimensions_type, dt_conf_get_int(CONFIG_PREFIX "dimensions_type"));
 
-  const gboolean is_scaling = dt_conf_is_equal(CONFIG_PREFIX "resizing", "scaling");
-  if (is_scaling)
-  {
-    // scaling
-    gtk_widget_show(GTK_WIDGET(d->scale));
-    gtk_widget_hide(GTK_WIDGET(d->px_size));
-    gtk_widget_hide(GTK_WIDGET(d->print_size));
-  }
-  else
-  {
-    // max size
-    gtk_widget_hide(GTK_WIDGET(d->scale));
-    gtk_widget_show(GTK_WIDGET(d->px_size));
-    gtk_widget_show(GTK_WIDGET(d->print_size));
-  }
-
-  _print_size_update_display(d);
+  _size_update_display(d);
 
   // Set storage
-  setting = dt_conf_get_string(CONFIG_PREFIX "storage_name");
+  setting = dt_conf_get_string_const(CONFIG_PREFIX "storage_name");
   const int storage_index = dt_imageio_get_index_of_storage(dt_imageio_get_storage_by_name(setting));
-  g_free(setting);
   dt_bauhaus_combobox_set(d->storage, storage_index);
 
   dt_bauhaus_combobox_set(d->upscale, dt_conf_get_bool(CONFIG_PREFIX "upscale") ? 1 : 0);
@@ -1493,8 +1405,7 @@ void gui_init(dt_lib_module_t *self)
   // style
   // set it to none if the var is not set or the style doesn't exist anymore
   gboolean rc = FALSE;
-  setting = NULL;
-  setting = dt_conf_get_string(CONFIG_PREFIX "style");
+  setting = dt_conf_get_string_const(CONFIG_PREFIX "style");
   if(setting != NULL && strlen(setting) > 0)
   {
     rc = dt_bauhaus_combobox_set_from_text(d->style, setting);
@@ -1503,7 +1414,6 @@ void gui_init(dt_lib_module_t *self)
   }
   else
     dt_bauhaus_combobox_set(d->style, 0);
-  g_free(setting);
 
   // style mode to overwrite as it was the initial behavior
   dt_bauhaus_combobox_set(d->style_mode, dt_conf_get_bool(CONFIG_PREFIX "style_append"));
@@ -1525,8 +1435,6 @@ void gui_cleanup(dt_lib_module_t *self)
 {
   dt_lib_cancel_postponed_update(self);
   dt_lib_export_t *d = (dt_lib_export_t *)self->data;
-  dt_gui_key_accel_block_on_focus_disconnect(GTK_WIDGET(d->width));
-  dt_gui_key_accel_block_on_focus_disconnect(GTK_WIDGET(d->height));
 
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_on_storage_list_changed), self);
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_lib_export_styles_changed_callback), self);
@@ -1874,7 +1782,7 @@ void *legacy_params(dt_lib_module_t *self, const void *const old_params, const s
     //  - old rest
 
     const gboolean omit = dt_conf_get_bool("omit_tag_hierarchy");
-    char *flags = dt_util_dstrcat(NULL, "%x", dt_lib_export_metadata_default_flags() | (omit ? DT_META_OMIT_HIERARCHY : 0));
+    gchar *flags = g_strdup_printf("%x", dt_lib_export_metadata_default_flags() | (omit ? DT_META_OMIT_HIERARCHY : 0));
     const int flags_size = strlen(flags) + 1;
     const size_t new_params_size = old_params_size + flags_size;
     void *new_params = calloc(1, new_params_size);

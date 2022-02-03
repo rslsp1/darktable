@@ -662,12 +662,12 @@ static gboolean _area_key_press_callback(GtkWidget *widget, GdkEventKey *event, 
   dt_iop_rgbcurve_params_t *p = (dt_iop_rgbcurve_params_t *)self->params;
   dt_iop_rgbcurve_gui_data_t *g = (dt_iop_rgbcurve_gui_data_t *)self->gui_data;
 
-  if(darktable.develop->darkroom_skip_mouse_events) return TRUE;
+  if(darktable.develop->darkroom_skip_mouse_events) return FALSE;
 
   // if autoscale is on: do not modify g and b curves
   if((p->curve_autoscale != DT_S_SCALE_MANUAL_RGB) && g->channel != DT_IOP_RGBCURVE_R) return TRUE;
 
-  if(g->selected < 0) return TRUE;
+  if(g->selected < 0) return FALSE;
 
   int handled = 0;
   float dx = 0.0f, dy = 0.0f;
@@ -692,7 +692,7 @@ static gboolean _area_key_press_callback(GtkWidget *widget, GdkEventKey *event, 
     dx = -RGBCURVE_DEFAULT_STEP;
   }
 
-  if(!handled) return TRUE;
+  if(!handled) return FALSE;
 
   dt_iop_color_picker_reset(self, TRUE);
   return _move_point_internal(self, widget, dx, dy, event->state);
@@ -873,7 +873,7 @@ static gboolean _area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_iop_modu
       const dt_iop_order_iccprofile_info_t *const work_profile
           = dt_ioppr_get_iop_work_profile_info(self, self->dev->iop);
 
-      float DT_ALIGNED_PIXEL picker_mean[4], picker_min[4], picker_max[4];
+      dt_aligned_pixel_t picker_mean, picker_min, picker_max;
 
       // the global live samples ...
       GSList *samples = darktable.lib->proxy.colorpicker.live_samples;
@@ -889,9 +889,9 @@ static gboolean _area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_iop_modu
             // this functions need a 4c image
             for(int k = 0; k < 3; k++)
             {
-              picker_mean[k] = sample->picked_color_rgb_mean[k];
-              picker_min[k] = sample->picked_color_rgb_min[k];
-              picker_max[k] = sample->picked_color_rgb_max[k];
+              picker_mean[k] = sample->scope[DT_LIB_COLORPICKER_STATISTIC_MEAN][k];
+              picker_min[k] = sample->scope[DT_LIB_COLORPICKER_STATISTIC_MIN][k];
+              picker_max[k] = sample->scope[DT_LIB_COLORPICKER_STATISTIC_MAX][k];
             }
             picker_mean[3] = picker_min[3] = picker_max[3] = 1.f;
 
@@ -1379,16 +1379,17 @@ void gui_init(struct dt_iop_module_t *self)
   GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
   g->channel_tabs = GTK_NOTEBOOK(gtk_notebook_new());
-  dt_ui_notebook_page(g->channel_tabs, _("R"), _("curve nodes for r channel"));
-  dt_ui_notebook_page(g->channel_tabs, _("G"), _("curve nodes for g channel"));
-  dt_ui_notebook_page(g->channel_tabs, _("B"), _("curve nodes for b channel"));
+  dt_action_define_iop(self, NULL, N_("channel"), GTK_WIDGET(g->channel_tabs), &dt_action_def_tabs_rgb);
+  dt_ui_notebook_page(g->channel_tabs, N_("R"), _("curve nodes for r channel"));
+  dt_ui_notebook_page(g->channel_tabs, N_("G"), _("curve nodes for g channel"));
+  dt_ui_notebook_page(g->channel_tabs, N_("B"), _("curve nodes for b channel"));
   g_signal_connect(G_OBJECT(g->channel_tabs), "switch_page", G_CALLBACK(tab_switch_callback), self);
   gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(g->channel_tabs), TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(hbox), gtk_grid_new(), TRUE, TRUE, 0);
 
   // color pickers
   g->colorpicker = dt_color_picker_new(self, DT_COLOR_PICKER_POINT_AREA, hbox);
-  gtk_widget_set_tooltip_text(g->colorpicker, _("pick GUI color from image\nctrl+click to select an area"));
+  gtk_widget_set_tooltip_text(g->colorpicker, _("pick GUI color from image\nctrl+click or right-click to select an area"));
   gtk_widget_set_name(g->colorpicker, "keep-active");
   g->colorpicker_set_values = dt_color_picker_new(self, DT_COLOR_PICKER_AREA, hbox);
   dtgtk_togglebutton_set_paint(DTGTK_TOGGLEBUTTON(g->colorpicker_set_values),
@@ -1405,14 +1406,16 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(vbox), GTK_WIDGET(hbox), TRUE, TRUE, 0);
 
   g->area = GTK_DRAWING_AREA(dtgtk_drawing_area_new_with_aspect_ratio(1.0));
+  g_object_set_data(G_OBJECT(g->area), "iop-instance", self);
+  dt_action_define_iop(self, NULL, N_("curve"), GTK_WIDGET(g->area), NULL);
   gtk_box_pack_start(GTK_BOX(vbox), GTK_WIDGET(g->area), TRUE, TRUE, 0);
 
   // FIXME: that tooltip goes in the way of the numbers when you hover a node to get a reading
   // gtk_widget_set_tooltip_text(GTK_WIDGET(g->area), _("double click to reset curve"));
 
-  gtk_widget_add_events(GTK_WIDGET(g->area), GDK_POINTER_MOTION_MASK
-                                                 | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
-                                                 | GDK_LEAVE_NOTIFY_MASK | darktable.gui->scroll_mask);
+  gtk_widget_add_events(GTK_WIDGET(g->area), GDK_POINTER_MOTION_MASK | darktable.gui->scroll_mask
+                                           | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
+                                           | GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
   gtk_widget_set_can_focus(GTK_WIDGET(g->area), TRUE);
   g_signal_connect(G_OBJECT(g->area), "draw", G_CALLBACK(_area_draw_callback), self);
   g_signal_connect(G_OBJECT(g->area), "button-press-event", G_CALLBACK(_area_button_press_callback), self);

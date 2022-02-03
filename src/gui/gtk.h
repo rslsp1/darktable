@@ -82,6 +82,10 @@ typedef enum dt_gui_color_t
   DT_GUI_COLOR_THUMBNAIL_BORDER,
   DT_GUI_COLOR_THUMBNAIL_SELECTED_BORDER,
   DT_GUI_COLOR_FILMSTRIP_BG,
+  DT_GUI_COLOR_TIMELINE_BG,
+  DT_GUI_COLOR_TIMELINE_FG,
+  DT_GUI_COLOR_TIMELINE_TEXT_BG,
+  DT_GUI_COLOR_TIMELINE_TEXT_FG,
   DT_GUI_COLOR_CULLING_SELECTED_BORDER,
   DT_GUI_COLOR_CULLING_FILMSTRIP_SELECTED_BORDER,
   DT_GUI_COLOR_PREVIEW_HOVER_BORDER,
@@ -216,11 +220,6 @@ gboolean dt_gui_get_scroll_delta(const GdkEventScroll *event, gdouble *delta);
  * scroll events. */
 gboolean dt_gui_get_scroll_unit_delta(const GdkEventScroll *event, int *delta);
 
-/** block any keyaccelerators when widget have focus, block is released when widget lose focus. */
-void dt_gui_key_accel_block_on_focus_connect(GtkWidget *w);
-/** clean up connected signal handlers before destroying your widget: */
-void dt_gui_key_accel_block_on_focus_disconnect(GtkWidget *w);
-
 /*
  * new ui api
  */
@@ -319,7 +318,7 @@ void dt_ui_restore_panels(struct dt_ui_t *ui);
 void dt_ui_update_scrollbars(struct dt_ui_t *ui);
 /** show or hide scrollbars */
 void dt_ui_scrollbars_show(struct dt_ui_t *ui, gboolean show);
-/** \brief toggle view of panels eg. collaps/expands to previous view state */
+/** \brief toggle view of panels eg. collapse/expands to previous view state */
 void dt_ui_toggle_panels_visibility(struct dt_ui_t *ui);
 /** \brief draw user's attention */
 void dt_ui_notify_user();
@@ -329,6 +328,8 @@ gboolean dt_ui_panel_visible(struct dt_ui_t *ui, const dt_ui_panel_t);
 int dt_ui_panel_get_size(struct dt_ui_t *ui, const dt_ui_panel_t p);
 /**  \brief set width of right, left, or bottom panel */
 void dt_ui_panel_set_size(struct dt_ui_t *ui, const dt_ui_panel_t p, int s);
+/** \brief is the panel ancestor of widget */
+gboolean dt_ui_panel_ancestor(struct dt_ui_t *ui, const dt_ui_panel_t p, GtkWidget *w);
 /** \brief get the center drawable widget */
 GtkWidget *dt_ui_center(struct dt_ui_t *ui);
 GtkWidget *dt_ui_center_base(struct dt_ui_t *ui);
@@ -370,8 +371,11 @@ static inline GtkWidget *dt_ui_label_new(const gchar *str)
   return label;
 };
 
-// clears all the pages of the notebook
-void dt_ui_notebook_clear(GtkNotebook *notebook);
+extern const struct dt_action_def_t dt_action_def_tabs_all_rgb;
+extern const struct dt_action_def_t dt_action_def_tabs_rgb;
+extern const struct dt_action_def_t dt_action_def_tabs_none;
+
+GtkNotebook *dt_ui_notebook_new(struct dt_action_def_t *def);
 
 GtkWidget *dt_ui_notebook_page(GtkNotebook *notebook, const char *text, const char *tooltip);
 
@@ -431,6 +435,16 @@ void dt_gui_container_remove_children(GtkContainer *container);
 // there are no other references to any of the children (if in doubt, use dt_gui_container_remove_children
 // instead; it's a bit slower but safer).
 void dt_gui_container_destroy_children(GtkContainer *container);
+
+void dt_gui_menu_popup(GtkMenu *menu, GtkWidget *button, GdkGravity widget_anchor, GdkGravity menu_anchor);
+
+void dt_gui_draw_rounded_rectangle(cairo_t *cr, float width, float height, float x, float y);
+
+// event handler for "key-press-event" of GtkTreeView to decide if focus switches to GtkSearchEntry
+gboolean dt_gui_search_start(GtkWidget *widget, GdkEventKey *event, GtkSearchEntry *entry);
+
+// event handler for "stop-search" of GtkSearchEntry
+void dt_gui_search_stop(GtkSearchEntry *entry, GtkWidget *widget);
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
